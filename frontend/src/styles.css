@@ -59,7 +59,7 @@ strong { font-weight: 500; }
 .connection-offline svg { color: var(--danger); }
 .sidebar-note { border-top: 1px solid var(--border); padding-top: 16px; display: flex; gap: 8px; color: var(--subtle); font-size: 10px; line-height: 1.5; }
 .workspace { min-width: 0; }
-main { padding: 24px 32px 32px; max-width: 1640px; margin: 0 auto; }
+main { padding: 32px 32px 32px; max-width: 1640px; margin: 0 auto; }
 main:focus { outline: none; }
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 62px; margin-bottom: 20px; }
 .page-heading p { margin-top: 8px; }
@@ -290,7 +290,7 @@ input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px;
   .brand > span:last-child, .nav-item > span:not(.nav-live-dot), .sidebar-bottom { display: none; }
   .nav-item { justify-content: center; padding: 13px 0; position: relative; }
   .nav-live-dot { position: absolute; right: 7px; top: 8px; margin-left: 0; }
-  main { padding: 20px 20px 28px; }
+  main { padding: 28px 20px 28px; }
   h1 { font-size: 24px; }
   .page-heading { gap: 16px; }
   .page-heading p { font-size: 12px; }
