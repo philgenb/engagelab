@@ -32,6 +32,13 @@ Open the Vite URL. Run `engagelab demo` in a third terminal to publish synthetic
 input, and gameplay metrics, then refresh and select the streams in the interface.
 API documentation: <http://127.0.0.1:8000/docs>.
 
+## PyCharm
+
+Open `engagelab/` as the project. Shared configurations are in `.run/` and use
+`.venv/bin/python`: **EngageLab Demo Streams**, **EngageLab Discover Streams**,
+**EngageLab Record Demo**, and **EngageLab Backend**. Start Demo Streams before
+Record Demo. Stop the demo publisher manually when finished.
+
 ## Record without the UI
 
 With the demo publisher running:
