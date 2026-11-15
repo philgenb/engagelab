@@ -1,4 +1,4 @@
-import { Activity, Gamepad2, Heart, Keyboard, Layers3, MousePointer2, Radio, Video } from "lucide-react";
+import { Activity, Gamepad2, Heart, Keyboard, Layers3, MousePointer2, Radio, Trash2, Video } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Session, Stream } from "./types";
 
@@ -51,8 +51,9 @@ export function formatDate(value: string) {
   return new Date(value).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-export function SessionsTable({ sessions, open, limit }: {
+export function SessionsTable({ sessions, open, limit, onDelete, busy = false }: {
   sessions: Session[]; open: (id: string) => void; limit?: number;
+  onDelete?: (session: Session) => void; busy?: boolean;
 }) {
   return <div className="table-scroll"><table className="sessions-table">
     <thead><tr><th>Session / game</th><th>Date</th><th>Duration</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
@@ -62,7 +63,11 @@ export function SessionsTable({ sessions, open, limit }: {
       <td className="muted">{formatDate(session.created_at)}</td>
       <td className="mono">{formatDuration(session.duration_seconds)}</td>
       <td><StatusBadge status={session.status} /></td>
-      <td><button className="button button-ghost button-small" onClick={() => open(session.id)}>View session <span aria-hidden="true">↗</span></button></td>
+      <td><div className="session-actions"><button className="button button-ghost button-small" onClick={() => open(session.id)}>View session <span aria-hidden="true">↗</span></button>
+        {onDelete && <button className="icon-button session-delete" aria-label={`Delete session ${session.name}`}
+          title={session.status === "recording" ? "Stop the recording before deleting" : "Delete session"}
+          disabled={busy || session.status === "recording"} onClick={() => onDelete(session)}><Trash2 size={15} /></button>}
+      </div></td>
     </tr>)}</tbody>
   </table></div>;
 }

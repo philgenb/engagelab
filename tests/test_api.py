@@ -87,3 +87,62 @@ def test_preview_is_one_stream_and_stops_when_recording_ends(tmp_path, monkeypat
         assert b"fake-jpeg" in response.content
         assert response.content.count(b"--frame") == 1
         assert client.get(url).status_code == 409
+
+
+def test_delete_session_removes_recordings_and_clears_current_snapshot(tmp_path):
+    app = create_app(tmp_path)
+    store = app.state.store
+    session = store.create("Delete this")
+    keep = store.create("Keep this")
+    session["status"] = "completed"
+    store.save(session)
+    directory = store.directory(session["id"])
+    (directory / "stream_00.mp4").write_bytes(b"video")
+    (directory / "stream_00.jsonl").write_text("recorded markers\n")
+    (directory / "nested").mkdir()
+    (directory / "nested" / "export.csv").write_text("export\n")
+    app.state.recorder._session = session
+    url = f"/api/sessions/{session['id']}"
+    with TestClient(app) as client:
+        assert client.delete(url).json() == {"deleted": session["id"]}
+        assert not directory.exists()
+        assert client.get(url).status_code == 404
+        assert client.get("/api/recording").json() is None
+        assert client.get("/api/sessions").json() == [keep]
+        assert client.delete(url).status_code == 404
+        assert client.delete("/api/sessions/not-a-uuid").status_code == 422
+
+
+def test_delete_refuses_recording_or_still_finalizing_session(tmp_path):
+    from types import SimpleNamespace
+
+    app = create_app(tmp_path)
+    session = app.state.store.create("Recording")
+    session["status"] = "recording"
+    app.state.store.save(session)
+    url = f"/api/sessions/{session['id']}"
+    with TestClient(app) as client:
+        assert client.delete(url).status_code == 409
+        assert app.state.store.directory(session["id"]).is_dir()
+        session["status"] = "completed"
+        app.state.store.save(session)
+        app.state.recorder._session = session
+        app.state.recorder._thread = SimpleNamespace(is_alive=lambda: True)
+        assert client.delete(url).status_code == 409
+        app.state.recorder._thread = None
+        assert client.delete(url).status_code == 200
+
+
+def test_delete_cannot_follow_session_symlinks(tmp_path):
+    app = create_app(tmp_path / "data")
+    external = tmp_path / "external"
+    external.mkdir()
+    session_id = str(uuid4())
+    import json
+
+    (external / "session.json").write_text(json.dumps({"id": session_id, "status": "completed"}))
+    (external / "keep.mp4").write_bytes(b"keep")
+    (app.state.store.root / session_id).symlink_to(external, target_is_directory=True)
+    with TestClient(app) as client:
+        assert client.delete(f"/api/sessions/{session_id}").status_code == 400
+    assert (external / "keep.mp4").read_bytes() == b"keep"

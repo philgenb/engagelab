@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -49,6 +50,13 @@ class SessionStore:
 
     def get(self, session_id: str) -> dict:
         return json.loads((self.directory(session_id) / "session.json").read_text(encoding="utf-8"))
+
+    def delete(self, session_id: str) -> None:
+        directory = self.directory(session_id)
+        if directory.is_symlink() or directory.resolve().parent != self.root.resolve():
+            raise ValueError("Session directory must be inside the recording data directory")
+        self.get(session_id)
+        shutil.rmtree(directory)
 
     def list(self) -> list[dict]:
         sessions = []

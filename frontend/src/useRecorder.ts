@@ -79,10 +79,14 @@ export function useRecorder() {
   }, [active, busy, recording?.id, refreshKey]);
 
   async function refreshSessions() {
+    const currentRevision = revision.current;
     try {
-      setSessions(await request<Session[]>("/sessions"));
+      const sessions = await request<Session[]>("/sessions");
+      if (currentRevision === revision.current) setSessions(sessions);
     } catch {
-      setConnectionError("Could not refresh sessions. Use Refresh sessions to reconnect.");
+      if (currentRevision === revision.current) {
+        setConnectionError("Could not refresh sessions. Use Refresh sessions to reconnect.");
+      }
     }
   }
 
@@ -130,6 +134,23 @@ export function useRecorder() {
     } finally { setBusy(false); void refreshSessions(); }
   }
 
+  async function deleteSession(id: string) {
+    revision.current += 1;
+    setBusy(true);
+    setError("");
+    try {
+      await request(`/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+      setSessions((previous) => previous.filter((session) => session.id !== id));
+      setRecording((previous) => previous?.id === id ? null : previous);
+      setConnection("online");
+      setConnectionError("");
+      return true;
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not delete session");
+      return false;
+    } finally { setBusy(false); }
+  }
+
   function refresh() {
     revision.current += 1;
     setRefreshKey((key) => key + 1);
@@ -137,6 +158,6 @@ export function useRecorder() {
 
   return {
     sessions, streams, selected, setSelected, recording, name, setName, game, setGame,
-    busy, error, connectionError, connection, active, refreshStreams, start, stop, refresh,
+    busy, error, connectionError, connection, active, refreshStreams, start, stop, refresh, deleteSession,
   };
 }

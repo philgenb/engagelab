@@ -54,6 +54,23 @@ class Recorder:
         self._lsl = None
         self._sources: list[Source] = []
 
+    def delete_session(self, session_id: str) -> None:
+        # Share the start/stop lock so a recording cannot start while it is being deleted.
+        with self._lock:
+            session = self.store.get(session_id)
+            current = self._session and self._session["id"] == session_id
+            if session["status"] == "recording" or (
+                current and self._thread and self._thread.is_alive()
+            ):
+                raise RecordingConflict("Stop the recording before deleting this session")
+            self.store.delete(session_id)
+            if current:
+                self._session = None
+                self._sources = []
+                self._thread = None
+                self._lsl = None
+                self._stop_at = None
+
     def preview(self, session_id: str, stream_index: int) -> bytes:
         with self._lock:
             if (

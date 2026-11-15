@@ -3,7 +3,7 @@ import {
   Activity, ArrowDownToLine, ArrowRight, Check, CheckCheck,
   CircleHelp, Clock3, Database, FolderOpen, LayoutDashboard,
   ListFilter, LoaderCircle, Plus, Radio, RefreshCw, Search, ShieldCheck,
-  Square, TriangleAlert, Waves, X,
+  Square, Trash2, TriangleAlert, Waves, X,
 } from "lucide-react";
 import { request } from "./api";
 import {
@@ -271,7 +271,15 @@ function Library({ recorder, sessions, open }: {
   const [query, setQuery] = useState("");
   const [game, setGame] = useState("");
   const [status, setStatus] = useState("");
-  const games = [...new Set(sessions.map((session) => session.game).filter(Boolean))];
+  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
+  const [deleteFailed, setDeleteFailed] = useState(false);
+  const deleteDialog = useRef<HTMLDialogElement>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const games = useMemo(() => [...new Set(sessions.map((session) => session.game).filter(Boolean))], [sessions]);
+  useEffect(() => {
+    if (deleteTarget) deleteDialog.current?.showModal(); else deleteDialog.current?.close();
+  }, [deleteTarget]);
+  useEffect(() => { if (game && !games.includes(game)) setGame(""); }, [game, games]);
   const filtered = sessions.filter((session) => (!game || session.game === game)
     && (!status || session.status === status)
     && `${session.name} ${session.game}`.toLowerCase().includes(query.toLowerCase()));
@@ -279,15 +287,34 @@ function Library({ recorder, sessions, open }: {
     <PageHeading title="Session library" description="All your recordings in one place. Find a session and inspect its captured data."
       action={<button className="button button-primary" onClick={() => navigate(recorder.active ? "recording" : "setup")}><Plus size={15} />{recorder.active ? "View recording" : "New recording"}</button>} />
     <section className="panel library-panel"><div className="library-tools"><label className="search-field"><Search size={16} />
-      <input aria-label="Search sessions" placeholder="Search sessions or games…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+      <input ref={search} aria-label="Search sessions" placeholder="Search sessions or games…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
       <div className="table-filters"><ListFilter size={16} className="muted" /><select aria-label="Filter by game" value={game} onChange={(event) => setGame(event.target.value)}><option value="">All games</option>{games.map((name) => <option key={name}>{name}</option>)}</select>
         <select aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option><option value="created">Draft</option><option value="recording">Recording</option><option value="completed">Recorded</option><option value="failed">Failed</option></select>
         <button className="icon-button" aria-label="Refresh sessions" title="Refresh sessions" disabled={recorder.busy} onClick={recorder.refresh}><RefreshCw size={16} /></button>
       </div></div>
-      {filtered.length ? <SessionsTable sessions={filtered} open={open} /> : <EmptyState title={sessions.length ? "No matching sessions" : "Your library starts here"}
+      {filtered.length ? <SessionsTable sessions={filtered} open={open} busy={recorder.busy}
+        onDelete={(session) => { setDeleteFailed(false); setDeleteTarget(session); }} /> : <EmptyState title={sessions.length ? "No matching sessions" : "Your library starts here"}
         description={sessions.length ? "Try a different name, game, or status." : "Completed recordings and session drafts will appear here."} />}
       <div className="table-footer"><span>{filtered.length} {filtered.length === 1 ? "session" : "sessions"}{filtered.length !== sessions.length ? ` of ${sessions.length}` : ""}</span><span>Stored locally <Database size={13} /></span></div>
     </section>
+    <dialog ref={deleteDialog} className="confirmation-dialog" aria-labelledby="delete-session-title"
+      onCancel={(event) => { if (recorder.busy) event.preventDefault(); else setDeleteTarget(null); }}
+      onClose={() => { if (!recorder.busy) setDeleteTarget(null); }}>
+      <button className="icon-button dialog-close" aria-label="Close dialog" disabled={recorder.busy} onClick={() => setDeleteTarget(null)}><X size={18} /></button>
+      <span className="dialog-icon"><Trash2 size={22} /></span><h2 id="delete-session-title">Delete session?</h2>
+      <p>“{deleteTarget?.name}” and all its videos and recorded data will be permanently deleted.</p>
+      {deleteFailed && <p className="delete-error" role="alert">{recorder.error || "Could not delete the session. Please try again."}</p>}
+      <div className="dialog-actions"><button className="button button-secondary" autoFocus disabled={recorder.busy} onClick={() => setDeleteTarget(null)}>Cancel</button>
+        <button className="button button-danger" disabled={recorder.busy || !deleteTarget} onClick={async () => {
+          if (!deleteTarget) return;
+          setDeleteFailed(false);
+          if (await recorder.deleteSession(deleteTarget.id)) {
+            setDeleteTarget(null);
+            requestAnimationFrame(() => search.current?.focus());
+          } else setDeleteFailed(true);
+        }}>{recorder.busy ? <LoaderCircle size={15} className="spin" /> : <Trash2 size={15} />}{recorder.busy ? "Deleting…" : "Delete session"}</button>
+      </div>
+    </dialog>
   </>;
 }
 

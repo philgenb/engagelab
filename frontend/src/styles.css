@@ -127,6 +127,10 @@ main:focus { outline: none; }
 .sessions-table small { display: block; font-size: 10px; margin-top: 5px; color: var(--subtle); }
 .session-link { border: 0; background: none; color: var(--text); padding: 2px 0; font-size: 12px; font-weight: 500; text-align: left; }
 .session-link:hover { color: var(--accent); }
+.session-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.session-delete { width: 32px; height: 32px; color: var(--danger); background: transparent; border-color: transparent; }
+.session-delete:hover:not(:disabled) { color: var(--danger); background: var(--danger-dim); border-color: #573238; }
+.confirmation-dialog .delete-error { margin-top: 16px; color: var(--danger); }
 .recent-panel .sessions-table th:nth-child(2), .recent-panel .sessions-table td:nth-child(2), .recent-panel .sessions-table th:last-child, .recent-panel .sessions-table td:last-child { display: none; }
 .recent-panel .sessions-table td { padding-top: 18px; padding-bottom: 18px; }
 .recent-activity h2 { margin-bottom: 22px; }

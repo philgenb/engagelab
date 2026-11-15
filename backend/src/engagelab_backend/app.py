@@ -70,6 +70,20 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         except FileNotFoundError as exc:
             raise HTTPException(404, "Session not found") from exc
 
+    @app.delete("/api/sessions/{session_id}")
+    def delete_session(session_id: UUID):
+        try:
+            recorder.delete_session(str(session_id))
+            return {"deleted": str(session_id)}
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "Session not found") from exc
+        except RecordingConflict as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(503, "Could not delete the session files") from exc
+
     @app.post("/api/sessions/{session_id}/start")
     def start(session_id: UUID, body: StartRecording):
         try:
