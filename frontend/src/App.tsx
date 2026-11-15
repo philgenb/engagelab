@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, ArrowDownToLine, ArrowRight, Check, CheckCheck, ChevronRight,
+  Activity, ArrowDownToLine, ArrowRight, Check, CheckCheck,
   CircleHelp, Clock3, Database, FolderOpen, LayoutDashboard,
   ListFilter, LoaderCircle, Plus, Radio, RefreshCw, Search, ShieldCheck,
   Square, TriangleAlert, Waves, X,
@@ -46,14 +46,11 @@ export function App() {
     session.id === recorder.recording?.id ? recorder.recording : session
   )), [recorder.sessions, recorder.recording]);
   const open = (id: string) => navigate(`session/${id}`);
-  const activeLabel = view === "session" ? "Session details"
-    : navigation.find((item) => item.key === view)?.label ?? "Overview";
   const error = recorder.error || recorder.connectionError || recorder.recording?.error;
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">Skip to content</a>
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark" aria-hidden="true"><Activity size={19} /></span><span>EngageLab</span></div>
-      <span className="nav-caption">RESEARCH WORKSPACE</span>
       <nav aria-label="Main navigation">
         {navigation.map(({ key, label, icon: Icon }) => <button key={key}
           aria-label={label} title={label}
@@ -68,12 +65,6 @@ export function App() {
       </div>
     </aside>
     <div className="workspace">
-      <div className="workspace-bar"><span className="breadcrumb">Workspace <ChevronRight size={14} />
-        <span>{activeLabel}</span></span><div className="workspace-meta">
-          <Badge tone={recorder.active ? "warning" : "neutral"}>{recorder.active ? "Recording active" : "Local workspace"}</Badge>
-          <span className="toolbar-date">{formatDate(new Date().toISOString())}</span>
-        </div>
-      </div>
       <main id="main-content" ref={heading} tabIndex={-1}>
         {error && <div className="alert" role="alert"><TriangleAlert size={18} />
           <span>{error}</span><button className="text-button" disabled={recorder.busy} onClick={recorder.refresh}>Retry connection</button></div>}
