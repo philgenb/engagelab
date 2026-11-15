@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { FormEvent } from "react";
 import "./styles.css";
@@ -47,36 +47,74 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [connectionError, setConnectionError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const revision = useRef(0);
   const active = recording?.status === "recording";
 
   useEffect(() => {
     const controller = new AbortController();
-    let pending = false;
-    const update = async () => {
-      if (pending) return;
-      pending = true;
+    const currentRevision = revision.current;
+    async function load() {
       try {
         const [latest, history] = await Promise.all([
           request<Session | null>("/recording", { signal: controller.signal }),
           request<Session[]>("/sessions", { signal: controller.signal }),
         ]);
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && currentRevision === revision.current) {
           setRecording(latest);
           setSessions(history);
           setConnectionError("");
         }
       } catch {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && currentRevision === revision.current) {
           setConnectionError("Cannot reach the backend. Start it on 127.0.0.1:8000.");
         }
-      } finally {
-        pending = false;
       }
+    }
+    void load();
+    return () => controller.abort();
+  }, [refreshKey]);
+
+  useEffect(() => {
+    if (!active || busy) return;
+    const controller = new AbortController();
+    const currentRevision = revision.current;
+    let timer: number | undefined;
+    let delay = 1000;
+    async function update() {
+      try {
+        const latest = await request<Session | null>("/recording", { signal: controller.signal });
+        if (controller.signal.aborted || currentRevision !== revision.current) return;
+        setRecording(latest);
+        setConnectionError("");
+        delay = 1000;
+        if (latest?.status !== "recording") {
+          if (latest) {
+            setSessions((previous) => previous.map((session) => session.id === latest.id ? latest : session));
+          }
+          return;
+        }
+      } catch {
+        if (controller.signal.aborted || currentRevision !== revision.current) return;
+        setConnectionError("Connection lost. Retrying with increasing delay.");
+        delay = Math.min(delay * 2, 30000);
+      }
+      if (!controller.signal.aborted) timer = window.setTimeout(() => void update(), delay);
+    }
+    timer = window.setTimeout(() => void update(), delay);
+    return () => {
+      controller.abort();
+      if (timer !== undefined) window.clearTimeout(timer);
     };
-    void update();
-    const timer = window.setInterval(() => void update(), 1000);
-    return () => { controller.abort(); window.clearInterval(timer); };
-  }, []);
+  }, [active, busy, recording?.id, refreshKey]);
+
+  async function refreshSessions() {
+    try {
+      setSessions(await request<Session[]>("/sessions"));
+    } catch {
+      setConnectionError("Could not refresh sessions. Use Refresh sessions to reconnect.");
+    }
+  }
 
   async function refreshStreams() {
     setBusy(true);
@@ -92,6 +130,7 @@ function App() {
 
   async function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    revision.current += 1;
     setBusy(true);
     setError("");
     try {
@@ -104,17 +143,18 @@ function App() {
       setRecording(started);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not start recording");
-    } finally { setBusy(false); }
+    } finally { setBusy(false); void refreshSessions(); }
   }
 
   async function stop() {
+    revision.current += 1;
     setBusy(true);
     setError("");
     try {
       setRecording(await request<Session>("/recording/stop", { method: "POST" }));
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not stop recording");
-    } finally { setBusy(false); }
+    } finally { setBusy(false); void refreshSessions(); }
   }
 
   const elapsed = recording?.duration_seconds ?? (active && recording.started_at
@@ -181,7 +221,13 @@ function App() {
           </section>
         </div>
         <section className="panel" id="sessions">
-          <h2>Sessions</h2>
+          <div className="section-heading">
+            <h2>Sessions</h2>
+            <button type="button" disabled={busy} onClick={() => {
+              revision.current += 1;
+              setRefreshKey((key) => key + 1);
+            }}>Refresh sessions</button>
+          </div>
           {sessions.length === 0 ? <p>No sessions yet.</p> : <div className="table-scroll"><table>
             <thead><tr><th>Session</th><th>Game</th><th>Created</th><th>Status</th></tr></thead>
             <tbody>{sessions.map((session) => <tr key={session.id}>
