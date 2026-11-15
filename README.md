@@ -46,7 +46,7 @@ Start **EngageLab Screen Stream** in PyCharm, or run:
 
 ```sh
 engagelab screen --list-monitors
-engagelab screen --monitor 1 --fps 10 --max-width 1280 --crf 23
+engagelab screen --monitor 1 --fps 30 --max-width 1280 --crf 23
 ```
 
 In the frontend, discover streams, select **Screen recording**, and start a session.

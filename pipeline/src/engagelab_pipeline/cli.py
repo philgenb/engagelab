@@ -21,7 +21,7 @@ def main() -> None:
     screen = commands.add_parser("screen", help="Publish a real screen-capture LSL stream")
     screen.add_argument("--list-monitors", action="store_true")
     screen.add_argument("--monitor", type=int, default=1)
-    screen.add_argument("--fps", type=float, default=10.0)
+    screen.add_argument("--fps", type=float, default=30.0)
     screen.add_argument("--max-width", type=int, default=1280)
     screen.add_argument("--crf", type=int, default=23, help="H.264 quality: lower is better (0-51)")
     screen.add_argument("--data-dir", type=Path)

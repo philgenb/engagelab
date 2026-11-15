@@ -20,7 +20,7 @@ from .video import Mp4Recording
 @dataclass(frozen=True)
 class ScreenConfig:
     monitor: int = 1
-    fps: float = 10.0
+    fps: float = 30.0
     max_width: int = 1280
     crf: int = 23
     data_dir: Path | None = None
