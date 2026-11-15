@@ -46,20 +46,44 @@ Start **EngageLab Screen Stream** in PyCharm, or run:
 
 ```sh
 engagelab screen --list-monitors
-engagelab screen --monitor 1 --fps 10 --max-width 1280 --quality 75
+engagelab screen --monitor 1 --fps 10 --max-width 1280 --crf 23
 ```
 
 In the frontend, discover streams, select **Screen recording**, and start a session.
-The publisher runs until stopped and only captures pixels while a receiver subscribes.
+**Live monitor** shows the gameplay preview during recording. Stop and save the session,
+then open **View session** to play the MP4 or download it. Restart an already running
+backend and screen publisher after upgrading from the earlier JPEG stream implementation.
+
+The publisher runs until stopped, but only captures pixels during a session started by
+EngageLab. Session start/stop controls the video through an authenticated loopback HTTP
+connection; LSL carries the frame markers. A generic LSL subscriber alone does not start
+video recording. The publisher and backend must run on the same computer and use the same
+data directory (`ENGAGELAB_DATA_DIR`, or `--data-dir` for the CLI). The control port is
+allocated automatically. Stop a recording in EngageLab before stopping the publisher.
 On macOS, allow Screen & System Audio Recording for the application running Python
 (e.g. PyCharm or Terminal) in System Settings > Privacy & Security, then restart it.
 
-Each LSL sample is one base64-encoded JPEG in a single string channel. Resolution,
-encoding and capture settings are in the stream XML. Timestamps estimate capture time
-using the midpoint of LSL clock readings before and after each screen grab, before JPEG
-encoding. FPS is a target, not a guarantee. The recorder stores the frames in its normal
-JSONL files; MP4 export and frontend video playback are not implemented yet. Image
-streams can create large recordings; lower FPS, width or JPEG quality to reduce size.
+Video is saved directly as H.264 MP4 in the session directory, e.g. `stream_00.mp4`.
+Each LSL sample contains a zero-based frame index in one int64 channel, with a capture
+timestamp estimated from the midpoint of clock readings before and after the screen grab.
+The stream has an irregular nominal rate because capture timing can vary. `--fps` sets
+the target rate; `--crf` sets H.264 quality (lower is better, default 23). Capture is
+video-only, without audio. XML metadata contains resolution, capture settings and the
+video path template.
+
+MP4 presentation timestamps preserve actual capture intervals, relative to the first
+frame. `stream_00.frames.jsonl` maps every video frame to its original LSL timestamp and
+video time. The regular `stream_00.jsonl` contains the received LSL markers with clock
+offsets and session-relative times. `session.json` links the video, timing file and first
+frame's session-relative time. Use these times for alignment rather than frame index
+divided by target FPS. Recording boundaries apply to the received markers; the video can
+contain a few additional frames while the publisher processes the stop request.
+
+Live preview uses a reduced JPEG image at up to 5 fps over one streaming connection to
+the backend. It does not send images over LSL or change the configured MP4 capture rate.
+The connection closes when leaving the view or stopping the session. Preview failures
+offer a manual retry, and missing frame markers produce a warning in the monitor.
+Existing JPEG/JSONL recordings remain unchanged and are not automatically converted.
 
 ## Record without the UI
 
@@ -71,8 +95,8 @@ engagelab record --name "Pilot 01" --game "Demo" --demo-streams --duration 10
 ```
 
 For real sources, repeat `--stream UID` using UIDs from `engagelab discover`.
-Other devices must already publish LSL streams. Additional hardware adapters, MP4
-export, annotation, and analysis are not implemented yet.
+Other devices must already publish LSL streams. Additional hardware adapters,
+annotation, and synchronized signal analysis are not implemented yet.
 
 Each recording contains `session.json`, per-stream XML metadata and chunked JSONL data,
 `clock_offsets.jsonl`, and `events.jsonl`. Samples retain original LSL timestamps,

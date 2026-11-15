@@ -12,6 +12,7 @@ import {
 } from "./components";
 import type { Session } from "./types";
 import { useRecorder } from "./useRecorder";
+import { SessionVideos } from "./VideoPanels";
 
 type RecorderState = ReturnType<typeof useRecorder>;
 const views = ["overview", "setup", "recording", "library", "session"];
@@ -238,6 +239,7 @@ function Recording({ recorder }: { recorder: RecorderState }) {
     {!recording ? <section className="panel"><EmptyState title="Ready when you are" description="Start a session to monitor elapsed time and the samples saved from every selected data source."
       action={<button className="button button-primary" onClick={() => navigate("setup")}><Plus size={15} />New recording</button>} /></section> : <>
       <div className="recording-grid"><div className="panel-stack">
+        <SessionVideos session={recording} />
         <section className="panel recording-sources"><div className="panel-heading"><h2>Source activity</h2><Badge tone={active ? "warning" : "positive"}>{active ? "Recording" : "Saved locally"}</Badge></div>
           <div className="recording-summary"><span className={`capture-emblem ${active ? "is-live" : ""}`}><Waves size={30} /></span><div><strong>{active ? "Collecting synchronized data" : "Recording finished"}</strong>
             <p>{active ? "Incoming samples are continuously saved to this session." : "The captured data and stream metadata are saved in your workspace."}</p></div></div>
@@ -325,6 +327,7 @@ function SessionDetails({ id, live }: { id: string; live: Session | null }) {
     <div className="recording-metrics detail-metrics"><Metric label="Duration" value={formatDuration(session.duration_seconds)} note="Total recording time" />
       <Metric label="Recorded sources" value={String(session.streams.length)} note="With individual stream metadata" />
       <Metric label="Saved samples" value={samples.toLocaleString()} note="Across all recorded sources" /></div>
+    <div className="panel-stack session-videos"><SessionVideos session={session} /></div>
     <section className="panel"><div className="panel-heading"><h2>Recorded data sources</h2><Badge tone={session.status === "completed" ? "positive" : "neutral"}>{session.status === "completed" ? "Saved locally" : session.status}</Badge></div>
       {session.streams.length ? <div className="detail-source-grid">{session.streams.map((stream) => <section className="detail-source" key={stream.uid}>
         <div className="detail-source-title"><span className="source-icon"><StreamIcon stream={stream} /></span><div><h3>{stream.name}</h3><span>{stream.type}</span></div></div>
