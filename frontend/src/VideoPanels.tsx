@@ -115,7 +115,7 @@ function RecordedStage({ session, sources }: { session: Session; sources: VideoS
     {error ? <div className="alert" role="alert"><TriangleAlert size={16} /><span>{error}</span>
       <button className="text-button" onClick={() => setRetry((value) => value + 1)}>Retry synchronization</button></div>
       : <div className="panel-footnote" role="status">{!ready || buffering ? <LoaderCircle size={14} className="spin" /> : <Video size={14} />}
-        {!ready ? "Loading videos and LSL frame timestamps…" : buffering ? "Buffering videos together…" : "Shared session timeline · Video positions follow the recorded LSL frame timestamps"}</div>}
+        {!ready ? "Loading recording…" : buffering ? "Buffering recording…" : "Gameplay and webcam play in sync."}</div>}
   </>;
 }
 
