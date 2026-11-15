@@ -24,7 +24,9 @@ class VideoService:
         self.next_preview = 0.0
         self.error = None
 
-    def start(self, session_id: str, stream_index: int) -> dict:
+    def start(
+        self, session_id: str, stream_index: int, start_deadline: float | None = None
+    ) -> dict:
         with self.lock:
             if self.writer:
                 raise VideoCaptureError(
@@ -41,6 +43,11 @@ class VideoService:
             path = directory / f"stream_{stream_index:02d}.mp4"
             self.open_capture()
             try:
+                # A delayed OS permission prompt must not leave an abandoned recording running.
+                if start_deadline is not None and time.monotonic() > start_deadline:
+                    raise VideoCaptureError(
+                        "Video start timed out; retry after granting permission"
+                    )
                 self.writer = Mp4Recording(path, self.size, self.config.fps, self.config.crf)
             except Exception:
                 self.close_capture()

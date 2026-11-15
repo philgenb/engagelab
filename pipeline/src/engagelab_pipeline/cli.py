@@ -9,7 +9,9 @@ from pathlib import Path
 from .demo import run_demo
 from .lsl import discover
 from .recorder import Recorder
-from .sources.screen import ScreenConfig, VideoCaptureError, list_monitors, run_screen
+from .sources.screen import ScreenConfig, list_monitors, run_screen
+from .sources.video_control import VideoCaptureError
+from .sources.webcam import WebcamConfig, run_webcam
 from .storage import SessionStore
 
 
@@ -25,6 +27,15 @@ def main() -> None:
     screen.add_argument("--max-width", type=int, default=1280)
     screen.add_argument("--crf", type=int, default=23, help="H.264 quality: lower is better (0-51)")
     screen.add_argument("--data-dir", type=Path)
+    webcam = commands.add_parser(
+        "webcam", help="Publish a webcam MP4 source with LSL frame markers"
+    )
+    webcam.add_argument("--device", type=int, default=0, help="Camera index (default: 0)")
+    webcam.add_argument("--fps", type=float, default=30.0)
+    webcam.add_argument("--width", type=int, default=1280)
+    webcam.add_argument("--height", type=int, default=720)
+    webcam.add_argument("--crf", type=int, default=23)
+    webcam.add_argument("--data-dir", type=Path)
     record = commands.add_parser("record", help="Record selected LSL streams")
     record.add_argument("--name", required=True)
     record.add_argument("--game", default="")
@@ -55,6 +66,20 @@ def main() -> None:
                 return
             config = ScreenConfig(args.monitor, args.fps, args.max_width, args.crf, args.data_dir)
             run_screen(stop, config)
+        except (VideoCaptureError, ValueError) as exc:
+            parser.exit(2, f"Error: {exc}\n")
+        return
+    if args.command == "webcam":
+        try:
+            config = WebcamConfig(
+                args.device,
+                args.fps,
+                args.width,
+                args.height,
+                args.crf,
+                args.data_dir,
+            )
+            run_webcam(stop, config)
         except (VideoCaptureError, ValueError) as exc:
             parser.exit(2, f"Error: {exc}\n")
         return

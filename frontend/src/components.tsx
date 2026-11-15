@@ -22,7 +22,7 @@ export function StreamIcon({ stream }: { stream: Stream }) {
   if (/heart|ecg|bpm/.test(kind)) return <Heart className="signal-heart" />;
   if (/mouse/.test(kind)) return <MousePointer2 className="signal-input" />;
   if (/input|keyboard/.test(kind)) return <Keyboard className="signal-input" />;
-  if (/video|camera|screen/.test(kind)) return <Video className="signal-game" />;
+  if (/video|camera|webcam|screen/.test(kind)) return <Video className="signal-game" />;
   if (/game|motion|flow/.test(kind)) return <Gamepad2 className="signal-game" />;
   return <Activity />;
 }

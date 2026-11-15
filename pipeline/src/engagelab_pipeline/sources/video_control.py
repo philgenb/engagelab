@@ -4,6 +4,7 @@ import json
 import secrets
 import socket
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
@@ -74,7 +75,11 @@ class VideoHandler(BaseHTTPRequestHandler):
                 raise ValueError("Invalid request size")
             body = json.loads(self.rfile.read(length))
             if self.path == "/start":
-                result = self.server.service.start(body["session_id"], body["stream_index"])
+                result = self.server.service.start(
+                    body["session_id"],
+                    body["stream_index"],
+                    body.get("start_deadline"),
+                )
             elif self.path == "/stop":
                 result = self.server.service.stop(body["session_id"])
             else:
@@ -107,14 +112,15 @@ class VideoClient:
         except ValueError as exc:
             raise VideoCaptureError("Invalid video control port") from exc
 
-    def request(self, route, body=None):
+    def request(self, route, body=None, timeout=None):
         request = Request(
             self.base_url + route,
             data=json.dumps(body).encode() if body is not None else None,
             headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
         )
         try:
-            with self.opener.open(request, timeout=8 if body is not None else 2) as response:
+            timeout = timeout if timeout is not None else (8 if body is not None else 2)
+            with self.opener.open(request, timeout=timeout) as response:
                 return response.read()
         except HTTPError as exc:
             try:
@@ -134,7 +140,9 @@ class VideoClient:
                 {
                     "session_id": session_id,
                     "stream_index": stream_index,
+                    "start_deadline": time.monotonic() + 55,
                 },
+                timeout=60,
             )
         )
 

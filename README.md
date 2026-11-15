@@ -85,6 +85,37 @@ The connection closes when leaving the view or stopping the session. Preview fai
 offer a manual retry, and missing frame markers produce a warning in the monitor.
 Existing JPEG/JSONL recordings remain unchanged and are not automatically converted.
 
+## Webcam stream
+
+Install the optional dependencies with `pip install -e '.[webcam]'`, or use
+`pip install -e '.[screen,webcam]'` for both video sources. Start **EngageLab Webcam Stream**
+in PyCharm, or run:
+
+```sh
+engagelab webcam --device 0 --fps 30 --width 1280 --height 720 --crf 23
+```
+
+Restart the backend after upgrading, discover streams in the frontend, and select
+**Webcam** alongside **Screen recording** or other modalities. Both sources start and stop
+with the session. The recording monitor shows a preview for each selected video source;
+session details provide separate players and MP4 downloads after stopping. Webcam defaults
+to camera index 0; try `--device 1` for another camera. On macOS, allow Camera access for
+PyCharm or Terminal in System Settings > Privacy & Security and restart the application
+if necessary. Close other applications using the camera if it cannot be opened.
+
+The camera is opened only when an EngageLab session starts, and released on stop or capture
+failure. Merely running the publisher or discovering streams does not activate it.
+The webcam uses the same local control protocol, data directory and file layout as the
+screen source. Each video gets its own stream index, e.g. `stream_00.mp4` for the screen
+and `stream_01.mp4` for the webcam, depending on selection order. The webcam records video
+without audio, with zero-based LSL frame markers and a `.frames.jsonl` timing file.
+
+FPS and camera resolution are requests to the device, which may provide different values.
+Output is padded to the configured dimensions while preserving the captured aspect ratio.
+Timestamps use the LSL clock immediately after a successful camera read, before encoding;
+camera exposure and driver buffering latency are not corrected. Preview remains capped
+at 5 fps. Actual device permissions and performance need checking on the target camera.
+
 ## Record without the UI
 
 With the demo publisher running:
