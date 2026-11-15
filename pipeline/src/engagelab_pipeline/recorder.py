@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import IO
 
 from .lsl import describe, load_lsl
+from .sources.screen_control import ScreenCaptureError, ScreenClient
 from .storage import SessionStore, utc_now
 
 
@@ -37,6 +38,7 @@ class Source:
     file: IO[str]
     correction: float
     next_correction: float
+    screen: ScreenClient | None = None
 
 
 class Recorder:
@@ -50,10 +52,39 @@ class Recorder:
         self._session: dict | None = None
         self._stop_at: float | None = None
         self._lsl = None
+        self._sources: list[Source] = []
+
+    def preview(self, session_id: str, stream_index: int) -> bytes:
+        with self._lock:
+            if (
+                not self._session
+                or self._session["id"] != session_id
+                or self._session["status"] != "recording"
+            ):
+                raise RecordingConflict("This session is not recording")
+            if not 0 <= stream_index < len(self._sources):
+                raise ValueError("Screen source not found")
+            source = self._sources[stream_index]
+            client = source.screen
+            if client is None:
+                raise ValueError("This source has no live preview")
+            last_sample = source.metadata["last_sample_local"]
+            if self._lsl.local_clock() - (last_sample or self._session["started_lsl"]) > 5:
+                raise ScreenCaptureError("No screen frames received for more than 5 seconds")
+        return client.preview()
 
     def snapshot(self) -> dict | None:
         with self._lock:
-            return copy.deepcopy(self._session)
+            session = copy.deepcopy(self._session)
+            if session and session["status"] == "recording":
+                for stream in session["streams"]:
+                    last = stream.get("last_sample_local") or session["started_lsl"]
+                    if stream.get("video_format") and self._lsl.local_clock() - last > 5:
+                        stream["video_warning"] = (
+                            "No screen frames received for more than 5 seconds. "
+                            "Check Screen Stream."
+                        )
+            return session
 
     def start(self, session_id: str, stream_uids: list[str]) -> dict:
         with self._lock:
@@ -105,7 +136,16 @@ class Recorder:
                         offsets,
                         {"stream_uid": uid, "measured_at_lsl": now, "offset_seconds": correction},
                     )
-                    sources.append(Source(inlet, metadata, data, correction, now + 5.0))
+                    sources.append(
+                        Source(
+                            inlet,
+                            metadata,
+                            data,
+                            correction,
+                            now + 5.0,
+                            ScreenClient.from_info(info),
+                        )
+                    )
                 # Discard pre-session buffering; timestamps define the actual recording boundary.
                 for source in sources:
                     source.inlet.flush()
@@ -122,8 +162,19 @@ class Recorder:
                 )
                 self._session = session
                 self._lsl = lsl
+                self._sources = sources
                 self._stop_at = None
                 self._stop.clear()
+                for index, source in enumerate(sources):
+                    if source.screen:
+                        # Also stop the source if a start request succeeds but its response is lost.
+                        source.metadata.update(
+                            video_file=f"stream_{index:02d}.mp4",
+                            video_format="mp4",
+                            video_status="recording",
+                        )
+                        resources.callback(self._finish_video, source, session_id, start)
+                        source.screen.start(session_id, index)
                 self.store.save(session)
                 append_json(events, {"event": "recording_started", "local_lsl": start})
                 self._thread = threading.Thread(
@@ -140,6 +191,32 @@ class Recorder:
                 self.store.save(session)
                 raise
             return copy.deepcopy(session)
+
+    def _finish_video(self, source: Source, session_id: str, start: float) -> None:
+        if source.metadata.get("video_status") != "recording":
+            return
+        try:
+            result = source.screen.stop(session_id)
+            # Paths are fixed by the recorder, not accepted from the control response.
+            allowed = {
+                "video_frame_count",
+                "video_first_frame_lsl",
+                "video_status",
+                "video_error",
+            }
+            source.metadata.update({key: value for key, value in result.items() if key in allowed})
+            first = source.metadata.get("video_first_frame_lsl")
+            if first is not None and "video_first_frame_session_seconds" not in source.metadata:
+                source.metadata["video_first_frame_session_seconds"] = (
+                    first + source.correction - start
+                )
+            source.metadata["video_timing_file"] = (
+                source.metadata["data_file"].removesuffix(".jsonl") + ".frames.jsonl"
+            )
+            if source.metadata["video_status"] == "failed":
+                source.metadata.setdefault("video_error", "MP4 recording failed")
+        except Exception as exc:
+            source.metadata.update(video_status="failed", video_error=str(exc))
 
     def _collect(self, source: Source) -> int:
         samples, timestamps = source.inlet.pull_chunk(timeout=0.0, max_samples=1024)
@@ -168,6 +245,11 @@ class Recorder:
                 },
             )
             with self._lock:
+                if source.screen and "video_first_frame_session_seconds" not in source.metadata:
+                    for sample, _stamp, local in rows:
+                        if sample[0] == 0:
+                            source.metadata["video_first_frame_session_seconds"] = local - start
+                            break
                 source.metadata["sample_count"] += len(rows)
                 source.metadata["last_sample_local"] = rows[-1][2]
         return len(timestamps)
@@ -212,6 +294,13 @@ class Recorder:
             error = str(exc)
         finally:
             try:
+                for source in sources:
+                    if source.screen:
+                        self._finish_video(
+                            source, self._session["id"], self._session["started_lsl"]
+                        )
+                        if source.metadata.get("video_error"):
+                            error = source.metadata["video_error"]
                 with self._lock:
                     end = self._stop_at or self._lsl.local_clock()
                     for source in sources:

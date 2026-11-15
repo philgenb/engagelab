@@ -1,13 +1,16 @@
 """Local API for stream discovery and session recording."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import UUID
 
 from engagelab_pipeline.lsl import LSLUnavailable, discover
 from engagelab_pipeline.recorder import Recorder, RecordingConflict
+from engagelab_pipeline.sources.screen_control import ScreenCaptureError
 from engagelab_pipeline.storage import SessionStore
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -78,8 +81,70 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(503, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        except ScreenCaptureError as exc:
+            raise HTTPException(503, str(exc)) from exc
         except Exception as exc:
             raise HTTPException(503, "Could not connect to all selected LSL streams") from exc
+
+    @app.get("/api/sessions/{session_id}/streams/{stream_index}/preview")
+    async def preview(session_id: UUID, stream_index: int, request: Request):
+        try:
+            initial = await run_in_threadpool(recorder.preview, str(session_id), stream_index)
+        except RecordingConflict as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except ScreenCaptureError as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+        async def frames():
+            frame = initial
+            while not await request.is_disconnected():
+                if frame:
+                    yield (
+                        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                        + str(len(frame)).encode()
+                        + b"\r\n\r\n"
+                        + frame
+                        + b"\r\n"
+                    )
+                await asyncio.sleep(0.2)
+                try:
+                    frame = await run_in_threadpool(recorder.preview, str(session_id), stream_index)
+                except (RecordingConflict, ValueError, ScreenCaptureError):
+                    break
+
+        return StreamingResponse(
+            frames(),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/api/sessions/{session_id}/streams/{stream_index}/video")
+    def video(session_id: UUID, stream_index: int, download: bool = False):
+        try:
+            saved = store.get(str(session_id))
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "Session not found") from exc
+        if not 0 <= stream_index < len(saved["streams"]):
+            raise HTTPException(404, "Video source not found")
+        stream = saved["streams"][stream_index]
+        if saved["status"] == "recording":
+            raise HTTPException(409, "Stop the recording before opening the MP4")
+        directory = store.directory(str(session_id)).resolve()
+        path = directory / f"stream_{stream_index:02d}.mp4"
+        if (
+            stream.get("video_status") != "ready"
+            or not path.is_file()
+            or path.resolve().parent != directory
+        ):
+            raise HTTPException(404, "No finalized MP4 is available for this source")
+        return FileResponse(
+            path,
+            media_type="video/mp4",
+            filename=path.name,
+            content_disposition_type="attachment" if download else "inline",
+        )
 
     @app.get("/api/recording")
     def recording():
