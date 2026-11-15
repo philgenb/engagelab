@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import pytest
 from engagelab_pipeline.recorder import Recorder, Source
 from engagelab_pipeline.sources.screen import ScreenConfig, ScreenService
-from engagelab_pipeline.sources.screen_control import ScreenCaptureError, ScreenClient, ScreenServer
 from engagelab_pipeline.sources.video import Mp4Recording
+from engagelab_pipeline.sources.video_control import VideoCaptureError, VideoClient, VideoServer
 from engagelab_pipeline.storage import SessionStore
 
 
@@ -46,9 +46,9 @@ def test_source_control_records_only_during_a_session(tmp_path):
     first = store.create("First")
     second = store.create("Second")
     service = ScreenService(ScreenConfig(data_dir=tmp_path), (64, 48))
-    server = ScreenServer(service)
+    server = VideoServer(service)
     thread = server.start()
-    client = ScreenClient(server.server_address[1], server.token)
+    client = VideoClient(server.server_address[1], server.token)
     grabbed = []
     markers = []
     shot = SimpleNamespace(size=(64, 48), rgb=image.new("RGB", (64, 48), "blue").tobytes())
@@ -63,10 +63,10 @@ def test_source_control_records_only_during_a_session(tmp_path):
         service.capture_frame(capture, {}, image, lsl, outlet)
         assert not grabbed
         assert client.preview() == b""
-        with pytest.raises(ScreenCaptureError, match="token"):
-            ScreenClient(server.server_address[1], "wrong").preview()
+        with pytest.raises(VideoCaptureError, match="token"):
+            VideoClient(server.server_address[1], "wrong").preview()
         client.start(first["id"], 0)
-        with pytest.raises(ScreenCaptureError, match="already recording"):
+        with pytest.raises(VideoCaptureError, match="already recording"):
             client.start(second["id"], 0)
         service.capture_frame(capture, {}, image, lsl, outlet)
         assert client.preview().startswith(b"\xff\xd8")
@@ -120,10 +120,10 @@ def test_recorder_links_video_to_session_and_reports_finalize_errors(tmp_path):
     assert source.metadata["video_timing_file"] == "stream_00.frames.jsonl"
 
     def unavailable(_):
-        raise ScreenCaptureError("Publisher disconnected")
+        raise VideoCaptureError("Publisher disconnected")
 
     source.metadata["video_status"] = "recording"
-    source.screen = SimpleNamespace(stop=unavailable)
+    source.video = SimpleNamespace(stop=unavailable)
     recorder._finish_video(source, "session", 100)
     assert source.metadata["video_status"] == "failed"
     assert "disconnected" in source.metadata["video_error"]

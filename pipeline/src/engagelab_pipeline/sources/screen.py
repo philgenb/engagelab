@@ -1,7 +1,6 @@
 """Record screen video as MP4 and publish frame indices with LSL timestamps."""
 
 import ctypes
-import io
 import math
 import socket
 import sys
@@ -12,9 +11,8 @@ from pathlib import Path
 from uuid import uuid4
 
 from ..lsl import load_lsl
-from ..storage import SessionStore
-from .screen_control import SCHEMA, ScreenCaptureError, ScreenServer
-from .video import Mp4Recording
+from .video_control import SCREEN_SCHEMA, VideoCaptureError, VideoServer
+from .video_service import VideoService
 
 
 @dataclass(frozen=True)
@@ -42,7 +40,7 @@ def capture_dependencies():
         from mss import mss
         from PIL import Image
     except ImportError as exc:
-        raise ScreenCaptureError(
+        raise VideoCaptureError(
             "Screen capture dependencies are missing. Run: pip install -e '.[screen]'"
         ) from exc
     return mss, Image
@@ -56,7 +54,7 @@ def check_permission() -> None:
     preflight.argtypes = []
     preflight.restype = ctypes.c_bool
     if not preflight():
-        raise ScreenCaptureError(
+        raise VideoCaptureError(
             "Screen recording permission is missing. In macOS System Settings > Privacy & "
             "Security > Screen & System Audio Recording, allow the application running Python "
             "(for example PyCharm or Terminal), then restart that application."
@@ -93,7 +91,7 @@ def create_stream_info(lsl, config: ScreenConfig, monitor: dict, server):
     )
     desc = info.desc()
     for key, value in {
-        "schema": SCHEMA,
+        "schema": SCREEN_SCHEMA,
         "video_format": "mp4",
         "video_codec": "h264",
         "frame_index_base": 0,
@@ -119,61 +117,9 @@ def create_stream_info(lsl, config: ScreenConfig, monitor: dict, server):
     return info
 
 
-class ScreenService:
+class ScreenService(VideoService):
     def __init__(self, config: ScreenConfig, size: tuple[int, int]):
-        self.config = config
-        self.size = size
-        self.store = SessionStore(config.data_dir)
-        self.lock = threading.RLock()
-        self.writer = None
-        self.session_id = None
-        self.last_session_id = None
-        self.result = None
-        self.preview = None
-        self.next_preview = 0.0
-        self.error = None
-
-    def start(self, session_id: str, stream_index: int) -> dict:
-        with self.lock:
-            if self.writer:
-                raise ScreenCaptureError("Screen source is already recording another session")
-            if type(stream_index) is not int or not 0 <= stream_index < 32:
-                raise ValueError("Invalid stream index")
-            directory = self.store.directory(session_id)
-            if not (directory / "session.json").is_file():
-                raise ScreenCaptureError(
-                    "Session directory not found. Screen Stream and backend must use the same "
-                    "ENGAGELAB_DATA_DIR (or --data-dir)."
-                )
-            path = directory / f"stream_{stream_index:02d}.mp4"
-            self.writer = Mp4Recording(path, self.size, self.config.fps, self.config.crf)
-            self.session_id = session_id
-            self.preview = None
-            self.error = None
-            self.next_preview = 0.0
-            self.result = None
-            print(f"Recording MP4: {path}", flush=True)
-            return {"video_file": path.name, "video_status": "recording", "video_format": "mp4"}
-
-    def stop(self, session_id: str) -> dict:
-        with self.lock:
-            if self.session_id != session_id:
-                if self.last_session_id == session_id and self.result:
-                    return self.result
-                raise ScreenCaptureError("This session is not recording on this screen source")
-            try:
-                self.result = self.writer.close()
-            except Exception as exc:
-                self.error = f"Could not finalize MP4: {exc}"
-                self.result = {"video_status": "failed"}
-            if self.error:
-                self.result.update(video_status="failed", video_error=self.error)
-            self.last_session_id = session_id
-            self.writer = None
-            self.session_id = None
-            self.preview = None
-            print(f"MP4 recording stopped: {self.result}", flush=True)
-            return self.result
+        super().__init__(config, size, "Screen recording")
 
     def capture_frame(self, capture, monitor, image_module, lsl, outlet):
         with self.lock:
@@ -186,15 +132,7 @@ class ScreenService:
                 image = image_module.frombytes("RGB", shot.size, shot.rgb)
                 if image.size != self.size:
                     image = image.resize(self.size, image_module.Resampling.LANCZOS)
-                index = self.writer.write(image, stamp)
-                outlet.push_sample([index], timestamp=stamp)
-                if time.monotonic() >= self.next_preview:
-                    thumbnail = image.copy()
-                    thumbnail.thumbnail((960, 540))
-                    with io.BytesIO() as output:
-                        thumbnail.save(output, format="JPEG", quality=65)
-                        self.preview = output.getvalue()
-                    self.next_preview = time.monotonic() + 0.2
+                self.write_image(image, stamp, outlet)
             except Exception as exc:
                 self.error = f"Screen recording failed: {exc}"
                 self.stop(self.session_id)
@@ -210,13 +148,13 @@ def run_screen(stop: threading.Event, config: ScreenConfig) -> None:
         with mss() as capture:
             monitors = capture.monitors
             if config.monitor >= len(monitors):
-                raise ScreenCaptureError(
+                raise VideoCaptureError(
                     f"Monitor {config.monitor} does not exist. Use screen --list-monitors."
                 )
             monitor = monitors[config.monitor]
             size = frame_size(monitor, config.max_width)
             service = ScreenService(config, size)
-            server = ScreenServer(service)
+            server = VideoServer(service)
             server.start()
             info = create_stream_info(lsl, config, monitor, server)
             outlet = lsl.StreamOutlet(info, chunk_size=1, max_buffered=60)
@@ -234,10 +172,10 @@ def run_screen(stop: threading.Event, config: ScreenConfig) -> None:
                     break
                 service.capture_frame(capture, monitor, image_module, lsl, outlet)
                 deadline = max(deadline + period, time.monotonic())
-    except ScreenCaptureError:
+    except VideoCaptureError:
         raise
     except Exception as exc:
-        raise ScreenCaptureError(f"Screen capture failed: {exc}") from exc
+        raise VideoCaptureError(f"Screen capture failed: {exc}") from exc
     finally:
         if server:
             server.shutdown()

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import IO
 
 from .lsl import describe, load_lsl
-from .sources.screen_control import ScreenCaptureError, ScreenClient
+from .sources.video_control import VideoCaptureError, VideoClient
 from .storage import SessionStore, utc_now
 
 
@@ -38,7 +38,7 @@ class Source:
     file: IO[str]
     correction: float
     next_correction: float
-    screen: ScreenClient | None = None
+    video: VideoClient | None = None
 
 
 class Recorder:
@@ -63,14 +63,14 @@ class Recorder:
             ):
                 raise RecordingConflict("This session is not recording")
             if not 0 <= stream_index < len(self._sources):
-                raise ValueError("Screen source not found")
+                raise ValueError("Video source not found")
             source = self._sources[stream_index]
-            client = source.screen
+            client = source.video
             if client is None:
                 raise ValueError("This source has no live preview")
             last_sample = source.metadata["last_sample_local"]
             if self._lsl.local_clock() - (last_sample or self._session["started_lsl"]) > 5:
-                raise ScreenCaptureError("No screen frames received for more than 5 seconds")
+                raise VideoCaptureError(f"No video frames received from {source.metadata['name']}")
         return client.preview()
 
     def snapshot(self) -> dict | None:
@@ -81,8 +81,8 @@ class Recorder:
                     last = stream.get("last_sample_local") or session["started_lsl"]
                     if stream.get("video_format") and self._lsl.local_clock() - last > 5:
                         stream["video_warning"] = (
-                            "No screen frames received for more than 5 seconds. "
-                            "Check Screen Stream."
+                            f"No video frames received from {stream['name']} for more than "
+                            "5 seconds. Check the corresponding video source."
                         )
             return session
 
@@ -143,7 +143,7 @@ class Recorder:
                             data,
                             correction,
                             now + 5.0,
-                            ScreenClient.from_info(info),
+                            VideoClient.from_info(info),
                         )
                     )
                 # Discard pre-session buffering; timestamps define the actual recording boundary.
@@ -166,7 +166,7 @@ class Recorder:
                 self._stop_at = None
                 self._stop.clear()
                 for index, source in enumerate(sources):
-                    if source.screen:
+                    if source.video:
                         # Also stop the source if a start request succeeds but its response is lost.
                         source.metadata.update(
                             video_file=f"stream_{index:02d}.mp4",
@@ -174,7 +174,7 @@ class Recorder:
                             video_status="recording",
                         )
                         resources.callback(self._finish_video, source, session_id, start)
-                        source.screen.start(session_id, index)
+                        source.video.start(session_id, index)
                 self.store.save(session)
                 append_json(events, {"event": "recording_started", "local_lsl": start})
                 self._thread = threading.Thread(
@@ -196,7 +196,7 @@ class Recorder:
         if source.metadata.get("video_status") != "recording":
             return
         try:
-            result = source.screen.stop(session_id)
+            result = source.video.stop(session_id)
             # Paths are fixed by the recorder, not accepted from the control response.
             allowed = {
                 "video_frame_count",
@@ -245,7 +245,7 @@ class Recorder:
                 },
             )
             with self._lock:
-                if source.screen and "video_first_frame_session_seconds" not in source.metadata:
+                if source.video and "video_first_frame_session_seconds" not in source.metadata:
                     for sample, _stamp, local in rows:
                         if sample[0] == 0:
                             source.metadata["video_first_frame_session_seconds"] = local - start
@@ -295,7 +295,7 @@ class Recorder:
         finally:
             try:
                 for source in sources:
-                    if source.screen:
+                    if source.video:
                         self._finish_video(
                             source, self._session["id"], self._session["started_lsl"]
                         )

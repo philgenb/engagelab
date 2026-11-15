@@ -7,7 +7,7 @@ from uuid import UUID
 
 from engagelab_pipeline.lsl import LSLUnavailable, discover
 from engagelab_pipeline.recorder import Recorder, RecordingConflict
-from engagelab_pipeline.sources.screen_control import ScreenCaptureError
+from engagelab_pipeline.sources.video_control import VideoCaptureError
 from engagelab_pipeline.storage import SessionStore
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -81,7 +81,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(503, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        except ScreenCaptureError as exc:
+        except VideoCaptureError as exc:
             raise HTTPException(503, str(exc)) from exc
         except Exception as exc:
             raise HTTPException(503, "Could not connect to all selected LSL streams") from exc
@@ -94,7 +94,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(409, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
-        except ScreenCaptureError as exc:
+        except VideoCaptureError as exc:
             raise HTTPException(503, str(exc)) from exc
 
         async def frames():
@@ -111,7 +111,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
                 await asyncio.sleep(0.2)
                 try:
                     frame = await run_in_threadpool(recorder.preview, str(session_id), stream_index)
-                except (RecordingConflict, ValueError, ScreenCaptureError):
+                except (RecordingConflict, ValueError, VideoCaptureError):
                     break
 
         return StreamingResponse(

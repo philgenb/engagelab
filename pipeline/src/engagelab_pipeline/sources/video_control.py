@@ -1,4 +1,4 @@
-"""Local session control for the standalone screen publisher."""
+"""Local session control for standalone MP4 video publishers."""
 
 import json
 import secrets
@@ -8,28 +8,29 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
-SCHEMA = "engagelab.screen.mp4.v1"
+SCREEN_SCHEMA = "engagelab.screen.mp4.v1"
+WEBCAM_SCHEMA = "engagelab.webcam.mp4.v1"
 
 
-class ScreenCaptureError(RuntimeError):
+class VideoCaptureError(RuntimeError):
     pass
 
 
-class ScreenServer(ThreadingHTTPServer):
+class VideoServer(ThreadingHTTPServer):
     daemon_threads = True
 
     def __init__(self, service):
-        super().__init__(("127.0.0.1", 0), ScreenHandler)
+        super().__init__(("127.0.0.1", 0), VideoHandler)
         self.service = service
         self.token = secrets.token_urlsafe(32)
 
     def start(self):
-        thread = threading.Thread(target=self.serve_forever, name="screen-control", daemon=True)
+        thread = threading.Thread(target=self.serve_forever, name="video-control", daemon=True)
         thread.start()
         return thread
 
 
-class ScreenHandler(BaseHTTPRequestHandler):
+class VideoHandler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
@@ -44,7 +45,7 @@ class ScreenHandler(BaseHTTPRequestHandler):
     def authorized(self):
         supplied = self.headers.get("Authorization", "")
         if not secrets.compare_digest(supplied, f"Bearer {self.server.token}"):
-            self.respond(403, b'{"error":"Invalid screen control token"}')
+            self.respond(403, b'{"error":"Invalid video control token"}')
             return False
         return True
 
@@ -80,16 +81,16 @@ class ScreenHandler(BaseHTTPRequestHandler):
                 self.respond(404, b"{}")
                 return
             self.respond(200, json.dumps(result).encode())
-        except (ValueError, KeyError, TypeError, OSError, ScreenCaptureError) as exc:
+        except (ValueError, KeyError, TypeError, OSError, VideoCaptureError) as exc:
             self.respond(409, json.dumps({"error": str(exc)}).encode())
         except Exception as exc:
             self.respond(500, json.dumps({"error": f"Video recorder failed: {exc}"}).encode())
 
 
-class ScreenClient:
+class VideoClient:
     def __init__(self, port: int, token: str):
         if not 1 <= port <= 65535 or not token or len(token) > 256:
-            raise ScreenCaptureError("Invalid screen control metadata")
+            raise VideoCaptureError("Invalid video control metadata")
         self.base_url = f"http://127.0.0.1:{port}"
         self.token = token
         self.opener = build_opener(ProxyHandler({}))
@@ -97,14 +98,14 @@ class ScreenClient:
     @classmethod
     def from_info(cls, info):
         desc = info.desc()
-        if desc.child_value("schema") != SCHEMA:
+        if desc.child_value("schema") not in {SCREEN_SCHEMA, WEBCAM_SCHEMA}:
             return None
         if desc.child_value("capture_host") != socket.gethostname():
-            raise ScreenCaptureError("The MP4 screen source must run on the same computer")
+            raise VideoCaptureError("The MP4 video source must run on the same computer")
         try:
             return cls(int(desc.child_value("control_port")), desc.child_value("control_token"))
         except ValueError as exc:
-            raise ScreenCaptureError("Invalid screen control port") from exc
+            raise VideoCaptureError("Invalid video control port") from exc
 
     def request(self, route, body=None):
         request = Request(
@@ -120,10 +121,10 @@ class ScreenClient:
                 message = json.loads(exc.read())["error"]
             except (ValueError, KeyError):
                 message = str(exc)
-            raise ScreenCaptureError(message) from exc
+            raise VideoCaptureError(message) from exc
         except (URLError, OSError) as exc:
-            raise ScreenCaptureError(
-                "Screen publisher is unavailable; restart Screen Stream"
+            raise VideoCaptureError(
+                "Video publisher is unavailable; restart the corresponding video source"
             ) from exc
 
     def start(self, session_id: str, stream_index: int):

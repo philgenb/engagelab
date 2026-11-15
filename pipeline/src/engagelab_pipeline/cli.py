@@ -9,7 +9,7 @@ from pathlib import Path
 from .demo import run_demo
 from .lsl import discover
 from .recorder import Recorder
-from .sources.screen import ScreenCaptureError, ScreenConfig, list_monitors, run_screen
+from .sources.screen import ScreenConfig, VideoCaptureError, list_monitors, run_screen
 from .storage import SessionStore
 
 
@@ -55,7 +55,7 @@ def main() -> None:
                 return
             config = ScreenConfig(args.monitor, args.fps, args.max_width, args.crf, args.data_dir)
             run_screen(stop, config)
-        except (ScreenCaptureError, ValueError) as exc:
+        except (VideoCaptureError, ValueError) as exc:
             parser.exit(2, f"Error: {exc}\n")
         return
     if args.duration <= 0:
