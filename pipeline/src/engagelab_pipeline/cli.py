@@ -1,0 +1,64 @@
+"""Small command-line interface for discovery, demos, and timed recordings."""
+
+import argparse
+import json
+import signal
+import threading
+from pathlib import Path
+
+from .demo import run_demo
+from .lsl import discover
+from .recorder import Recorder
+from .storage import SessionStore
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="engagelab")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("discover", help="List available LSL streams")
+    commands.add_parser("demo", help="Publish three synthetic modality streams")
+    record = commands.add_parser("record", help="Record selected LSL streams")
+    record.add_argument("--name", required=True)
+    record.add_argument("--game", default="")
+    selection = record.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--stream", action="append", help="Stream UID; may be repeated")
+    selection.add_argument(
+        "--demo-streams", action="store_true", help="Select only EngageLab demos"
+    )
+    record.add_argument("--duration", type=float, default=10.0)
+    record.add_argument("--data-dir", type=Path)
+    args = parser.parse_args()
+    if args.command == "discover":
+        print(json.dumps(discover(), indent=2))
+        return
+    stop = threading.Event()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: stop.set())
+    if args.command == "demo":
+        print(
+            "Publishing synthetic HeartRate, Input, and Game streams. Ctrl+C to stop.", flush=True
+        )
+        run_demo(stop)
+        return
+    if args.duration <= 0:
+        parser.error("--duration must be positive")
+    uids = args.stream
+    if args.demo_streams:
+        uids = [
+            stream["uid"]
+            for stream in discover()
+            if stream["source_id"].startswith("engagelab-demo-")
+        ]
+    store = SessionStore(args.data_dir)
+    session = store.create(args.name, args.game)
+    recorder = Recorder(store)
+    try:
+        recorder.start(session["id"], uids)
+        print(f"Recording {session['id']} for {args.duration:g} seconds.", flush=True)
+        stop.wait(args.duration)
+    finally:
+        recorder.close()
+    result = store.get(session["id"])
+    print(json.dumps(result, indent=2))
+    if result["status"] != "completed":
+        raise SystemExit(1)
