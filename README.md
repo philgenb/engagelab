@@ -39,6 +39,28 @@ Open `engagelab/` as the project. Shared configurations are in `.run/` and use
 **EngageLab Record Demo**, and **EngageLab Backend**. Start Demo Streams before
 Record Demo. Stop the demo publisher manually when finished.
 
+## Screen recording stream
+
+Install the optional capture dependencies with `pip install -e '.[screen]'`.
+Start **EngageLab Screen Stream** in PyCharm, or run:
+
+```sh
+engagelab screen --list-monitors
+engagelab screen --monitor 1 --fps 10 --max-width 1280 --quality 75
+```
+
+In the frontend, discover streams, select **Screen recording**, and start a session.
+The publisher runs until stopped and only captures pixels while a receiver subscribes.
+On macOS, allow Screen & System Audio Recording for the application running Python
+(e.g. PyCharm or Terminal) in System Settings > Privacy & Security, then restart it.
+
+Each LSL sample is one base64-encoded JPEG in a single string channel. Resolution,
+encoding and capture settings are in the stream XML. Timestamps estimate capture time
+using the midpoint of LSL clock readings before and after each screen grab, before JPEG
+encoding. FPS is a target, not a guarantee. The recorder stores the frames in its normal
+JSONL files; MP4 export and frontend video playback are not implemented yet. Image
+streams can create large recordings; lower FPS, width or JPEG quality to reduce size.
+
 ## Record without the UI
 
 With the demo publisher running:
@@ -49,8 +71,8 @@ engagelab record --name "Pilot 01" --game "Demo" --demo-streams --duration 10
 ```
 
 For real sources, repeat `--stream UID` using UIDs from `engagelab discover`.
-Devices must already publish LSL streams; hardware adapters, MP4 capture, annotation,
-and analysis are not implemented yet.
+Other devices must already publish LSL streams. Additional hardware adapters, MP4
+export, annotation, and analysis are not implemented yet.
 
 Each recording contains `session.json`, per-stream XML metadata and chunked JSONL data,
 `clock_offsets.jsonl`, and `events.jsonl`. Samples retain original LSL timestamps,
