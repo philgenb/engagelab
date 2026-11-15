@@ -9,6 +9,7 @@ from engagelab_pipeline.lsl import LSLUnavailable, discover
 from engagelab_pipeline.recorder import Recorder, RecordingConflict
 from engagelab_pipeline.sources.video_control import VideoCaptureError
 from engagelab_pipeline.storage import SessionStore
+from engagelab_pipeline.video_timing import load_video_timing
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -120,8 +121,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
 
-    @app.get("/api/sessions/{session_id}/streams/{stream_index}/video")
-    def video(session_id: UUID, stream_index: int, download: bool = False):
+    def saved_video(session_id: UUID, stream_index: int):
         try:
             saved = store.get(str(session_id))
         except FileNotFoundError as exc:
@@ -139,6 +139,21 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             or path.resolve().parent != directory
         ):
             raise HTTPException(404, "No finalized MP4 is available for this source")
+        return saved, directory, path
+
+    @app.get("/api/sessions/{session_id}/streams/{stream_index}/video-timing")
+    def video_timing(session_id: UUID, stream_index: int):
+        saved, directory, _ = saved_video(session_id, stream_index)
+        try:
+            return load_video_timing(directory, stream_index, saved["duration_seconds"])
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/api/sessions/{session_id}/streams/{stream_index}/video")
+    def video(session_id: UUID, stream_index: int, download: bool = False):
+        _, _, path = saved_video(session_id, stream_index)
         return FileResponse(
             path,
             media_type="video/mp4",
