@@ -9,6 +9,7 @@ from pathlib import Path
 from .demo import run_demo
 from .lsl import discover
 from .recorder import Recorder
+from .sources.screen import ScreenCaptureError, ScreenConfig, list_monitors, run_screen
 from .storage import SessionStore
 
 
@@ -17,6 +18,12 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("discover", help="List available LSL streams")
     commands.add_parser("demo", help="Publish three synthetic modality streams")
+    screen = commands.add_parser("screen", help="Publish a real screen-capture LSL stream")
+    screen.add_argument("--list-monitors", action="store_true")
+    screen.add_argument("--monitor", type=int, default=1)
+    screen.add_argument("--fps", type=float, default=10.0)
+    screen.add_argument("--max-width", type=int, default=1280)
+    screen.add_argument("--quality", type=int, default=75)
     record = commands.add_parser("record", help="Record selected LSL streams")
     record.add_argument("--name", required=True)
     record.add_argument("--game", default="")
@@ -39,6 +46,16 @@ def main() -> None:
             "Publishing synthetic HeartRate, Input, and Game streams. Ctrl+C to stop.", flush=True
         )
         run_demo(stop)
+        return
+    if args.command == "screen":
+        try:
+            if args.list_monitors:
+                print(json.dumps(list_monitors(), indent=2))
+                return
+            config = ScreenConfig(args.monitor, args.fps, args.max_width, args.quality)
+            run_screen(stop, config)
+        except (ScreenCaptureError, ValueError) as exc:
+            parser.exit(2, f"Error: {exc}\n")
         return
     if args.duration <= 0:
         parser.error("--duration must be positive")
