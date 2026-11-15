@@ -362,13 +362,13 @@ input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px;
 .session-videos:not(:empty) { margin-bottom: 24px; }
 .video-panel .alert { margin-top: 16px; }
 
-.video-stage { position: relative; width: min(100%, 89dvh); max-height: 50dvh; margin-inline: auto; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: #080d12; }
+.video-layout { width: 100%; min-width: 0; }
+.video-stage { position: relative; width: min(100%, var(--video-stage-width, 89dvh), 128dvh); margin-inline: auto; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: #080d12; }
 .gameplay-layer { position: absolute; inset: 0; }
 .video-stage .video-preview { width: 100%; height: 100%; aspect-ratio: auto; border: 0; border-radius: 0; }
 .stage-video { display: block; width: 100%; height: 100%; object-fit: contain; background: #080d12; }
-.camera-overlays { position: absolute; z-index: 2; top: 3%; right: 2%; display: flex; flex-direction: column; gap: 10px; width: 25%; max-width: 340px; min-width: 110px; }
-.camera-overlay { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border: 2px solid var(--accent); border-radius: 8px; background: #080d12; box-shadow: 0 8px 28px #0008; }
-.camera-label { position: absolute; z-index: 2; top: 5px; left: 6px; max-width: calc(100% - 12px); padding: 3px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px; font-size: 10px; background: #080d12cc; color: var(--text); pointer-events: none; }
+.camera-overlay { position: absolute; z-index: 2; top: 0; left: 0; overflow: hidden; border: 2px solid var(--accent); border-radius: 8px; background: #080d12; box-shadow: 0 8px 28px #0008; cursor: grab; touch-action: none; user-select: none; }
+.camera-label { position: absolute; z-index: 2; top: 7px; left: 8px; max-width: calc(100% - 16px); display: flex; align-items: center; gap: 4px; padding: 3px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px; font-size: 10px; background: #080d12cc; color: var(--text); pointer-events: none; }
 .camera-overlay .preview-placeholder { gap: 5px; padding: 22px 8px 8px; }
 .camera-overlay .preview-placeholder > span { display: none; }
 .camera-overlay .preview-placeholder strong { font-size: 10px; }
@@ -385,12 +385,29 @@ input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px;
 .playback-controls .session-seek { height: 24px; padding: 0; border: 0; background: transparent; }
 .playback-controls select { padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
 .video-panel:fullscreen { display: flex; flex-direction: column; padding: 20px; background: var(--bg); overflow: auto; }
+.video-panel:fullscreen .video-layout { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .video-panel:fullscreen .video-stage { flex: 1; width: 100%; min-height: 0; max-height: none; aspect-ratio: auto; }
+.video-panel:fullscreen .stage-resize { display: none; }
+.video-stage[data-dragging] { user-select: none; }
+.video-stage[data-dragging] .camera-overlay { cursor: grabbing; will-change: transform; }
+.video-resize { position: absolute; z-index: 3; width: 24px; height: 24px; border: 0; padding: 0; border-radius: 4px; background: #080d1280; touch-action: none; }
+.video-resize::after { content: ""; position: absolute; inset: 6px; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); opacity: .7; }
+.video-resize:hover::after, .video-resize:focus-visible::after { opacity: 1; }
+.resize-nw { top: 0; left: 0; cursor: nwse-resize; }
+.resize-ne { top: 0; right: 0; cursor: nesw-resize; }
+.resize-sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.resize-se { bottom: 0; right: 0; cursor: nwse-resize; }
+.resize-nw::after { transform: rotate(180deg); }
+.resize-ne::after { transform: rotate(-90deg); }
+.resize-sw::after { transform: rotate(90deg); }
+.overlay-resize { width: 18px; height: 18px; }
+.overlay-resize::after { inset: 4px; }
+.video-layout-tools { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 10px; color: var(--subtle); font-size: 10px; }
+.video-layout-tools .text-button { font-size: 10px; }
 @media (max-width: 600px) {
   .playback-controls { flex-wrap: wrap; gap: 10px; }
   .session-seek { flex-basis: 100%; order: 1; }
   .playback-controls select { margin-left: auto; }
-  .camera-overlays { width: 29%; min-width: 96px; }
   .camera-label { font-size: 8px; padding: 2px 4px; }
   .camera-overlay .preview-placeholder > svg { display: none; }
 }

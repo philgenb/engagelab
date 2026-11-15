@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import { ArrowDownToLine, LoaderCircle, Maximize, Pause, Play, RefreshCw, TriangleAlert, Video } from "lucide-react";
 import { request } from "./api";
 import { Badge, EmptyState, formatDuration } from "./components";
 import type { Session, Stream } from "./types";
 import { SynchronizedPlayback, videoTarget } from "./videoPlayback";
 import type { VideoTiming } from "./videoPlayback";
+import { VideoLayout } from "./VideoLayout";
 
 type VideoSource = { stream: Stream; index: number; base: string };
 
@@ -24,18 +24,6 @@ function LivePreview({ url, source }: { url: string; source: string }) {
         setFailed(false); setLoaded(false); setAttempt((value) => value + 1);
       }}><RefreshCw size={15} />Retry preview</button>}
     </div>}
-  </div>;
-}
-
-function VideoLayout({ sources, render }: {
-  sources: VideoSource[]; render: (source: VideoSource) => ReactNode;
-}) {
-  return <div className="video-stage">
-    <div className="gameplay-layer">{render(sources[0])}</div>
-    {sources.length > 1 && <div className="camera-overlays">{sources.slice(1).map((source) =>
-      <div className="camera-overlay" key={source.stream.uid}>
-        {render(source)}<span className="camera-label">{source.stream.name}</span>
-      </div>)}</div>}
   </div>;
 }
 

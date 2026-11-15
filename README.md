@@ -119,8 +119,12 @@ at 5 fps. Actual device permissions and performance need checking on the target 
 ## Synchronized playback
 
 Gameplay is displayed with the webcam in the upper-right corner, in live view and session
-playback. The normal view is limited to half the window height; fullscreen expands both
-layers together. Recorded videos share play/pause, a session timeline and playback speed.
+playback. The initial view uses half the window height; corner handles resize the gameplay
+and webcam while preserving their aspect ratios. The webcam can be dragged within gameplay
+and stays inside its boundaries, including after resizing or entering fullscreen. Layout
+preferences are remembered in the browser; **Reset layout** restores the defaults.
+Fullscreen expands both layers together. Recorded videos share play/pause, a session
+timeline and playback speed.
 
 The backend joins received LSL frame indices and their clock-corrected `session_seconds`
 with each video's `.frames.jsonl` presentation times. The player uses this per-frame
