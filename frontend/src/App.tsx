@@ -238,8 +238,8 @@ function Recording({ recorder }: { recorder: RecorderState }) {
       action={recording ? <StatusBadge status={recording.status} /> : undefined} />
     {!recording ? <section className="panel"><EmptyState title="Ready when you are" description="Start a session to monitor elapsed time and the samples saved from every selected data source."
       action={<button className="button button-primary" onClick={() => navigate("setup")}><Plus size={15} />New recording</button>} /></section> : <>
+      <div className="session-videos"><SessionVideos session={recording} /></div>
       <div className="recording-grid"><div className="panel-stack">
-        <SessionVideos session={recording} />
         <section className="panel recording-sources"><div className="panel-heading"><h2>Source activity</h2><Badge tone={active ? "warning" : "positive"}>{active ? "Recording" : "Saved locally"}</Badge></div>
           <div className="recording-summary"><span className={`capture-emblem ${active ? "is-live" : ""}`}><Waves size={30} /></span><div><strong>{active ? "Collecting synchronized data" : "Recording finished"}</strong>
             <p>{active ? "Incoming samples are continuously saved to this session." : "The captured data and stream metadata are saved in your workspace."}</p></div></div>

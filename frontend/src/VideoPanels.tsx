@@ -1,7 +1,13 @@
-import { useState } from "react";
-import { ArrowDownToLine, RefreshCw, TriangleAlert, Video } from "lucide-react";
-import { Badge, EmptyState } from "./components";
-import type { Session } from "./types";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { ArrowDownToLine, LoaderCircle, Maximize, Pause, Play, RefreshCw, TriangleAlert, Video } from "lucide-react";
+import { request } from "./api";
+import { Badge, EmptyState, formatDuration } from "./components";
+import type { Session, Stream } from "./types";
+import { SynchronizedPlayback, videoTarget } from "./videoPlayback";
+import type { VideoTiming } from "./videoPlayback";
+
+type VideoSource = { stream: Stream; index: number; base: string };
 
 function LivePreview({ url, source }: { url: string; source: string }) {
   const [attempt, setAttempt] = useState(0);
@@ -21,31 +27,136 @@ function LivePreview({ url, source }: { url: string; source: string }) {
   </div>;
 }
 
+function VideoLayout({ sources, render }: {
+  sources: VideoSource[]; render: (source: VideoSource) => ReactNode;
+}) {
+  return <div className="video-stage">
+    <div className="gameplay-layer">{render(sources[0])}</div>
+    {sources.length > 1 && <div className="camera-overlays">{sources.slice(1).map((source) =>
+      <div className="camera-overlay" key={source.stream.uid}>
+        {render(source)}<span className="camera-label">{source.stream.name}</span>
+      </div>)}</div>}
+  </div>;
+}
+
+function RecordedStage({ session, sources }: { session: Session; sources: VideoSource[] }) {
+  const [timings, setTimings] = useState<Record<number, VideoTiming> | null>(null);
+  const [error, setError] = useState("");
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  const [rate, setRate] = useState(1);
+  const [buffering, setBuffering] = useState(false);
+  const [, setMediaVersion] = useState(0);
+  const [retry, setRetry] = useState(0);
+  const media = useRef(new Map<number, HTMLVideoElement>());
+  const available = useMemo(() => sources.filter(({ stream }) => stream.video_status === "ready"), [sources]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setTimings(null); setError(""); setPlaying(false); setTime(0);
+    void Promise.all(available.map(async (source) => [source.index,
+      await request<VideoTiming>(`/sessions/${encodeURIComponent(session.id)}/streams/${source.index}/video-timing`, { signal: controller.signal }),
+    ] as const)).then((items) => {
+      if (!controller.signal.aborted) setTimings(Object.fromEntries(items));
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setError(`Could not load LSL synchronization: ${error instanceof Error ? error.message : "Unknown error"}`);
+    });
+    return () => controller.abort();
+  }, [session.id, available, retry]);
+  const engine = useMemo(() => timings ? new SynchronizedPlayback(available.map((source) => ({
+    media: () => media.current.get(source.index), points: timings[source.index].points,
+  })), session.duration_seconds || 0, (message) => { setError(message); setPlaying(false); }) : null,
+  [timings, available, session.duration_seconds]);
+  useEffect(() => () => engine?.pause(), [engine]);
+  useEffect(() => { engine?.seek(0); }, [engine]);
+  useEffect(() => {
+    if (!engine) return;
+    engine.rate = rate;
+  }, [engine, rate]);
+  useEffect(() => {
+    if (!engine || !playing) { engine?.pause(); return; }
+    engine.play();
+    let frame = 0;
+    let previous = performance.now();
+    let painted = 0;
+    const animate = (now: number) => {
+      engine.tick((now - previous) / 1000);
+      previous = now;
+      if (now - painted > 80 || !engine.playing) {
+        setTime(engine.time); setBuffering(engine.buffering); painted = now;
+      }
+      if (engine.playing) frame = requestAnimationFrame(animate); else setPlaying(false);
+    };
+    frame = requestAnimationFrame(animate);
+    const hide = () => { if (document.hidden) { engine.pause(); setPlaying(false); } };
+    document.addEventListener("visibilitychange", hide);
+    return () => { cancelAnimationFrame(frame); engine.pause(); document.removeEventListener("visibilitychange", hide); };
+  }, [playing, engine]);
+  const ready = available.length > 0 && !!engine && available.every((source) =>
+    (media.current.get(source.index)?.readyState || 0) >= 2);
+  function seek(value: number) { engine?.seek(value); setTime(value); }
+  function video(source: VideoSource) {
+    if (source.stream.video_status !== "ready") return <div className="source-unavailable">
+      <TriangleAlert size={20} /><span>{source.stream.video_error || "No video available"}</span></div>;
+    const element = media.current.get(source.index);
+    const outside = timings && element && !videoTarget(timings[source.index].points, time, element.duration);
+    return <>
+      <video key={retry} className="stage-video" muted playsInline preload="auto"
+        aria-label={`${source.stream.name} recording`} src={`${source.base}/video`}
+        ref={(element) => { if (element) media.current.set(source.index, element); else media.current.delete(source.index); }}
+        onLoadedMetadata={() => { engine?.seek(engine.time); setMediaVersion((value) => value + 1); }}
+        onCanPlay={() => setMediaVersion((value) => value + 1)}
+        onError={() => { setError(`Could not load ${source.stream.name}.`); setPlaying(false); }} />
+      {outside && <div className="source-unavailable"><Video size={20} /><span>No recording at this session time</span></div>}
+    </>;
+  }
+  return <>
+    <VideoLayout sources={sources} render={video} />
+    <div className="playback-controls">
+      <button className="icon-button playback-toggle" aria-label={playing ? "Pause all videos" : "Play all videos"}
+        disabled={!ready || !!error} onClick={() => setPlaying((value) => !value)}>
+        {playing ? <Pause size={20} /> : <Play size={20} />}</button>
+      <span className="mono playback-time">{formatDuration(time)} / {formatDuration(session.duration_seconds)}</span>
+      <input className="session-seek" type="range" aria-label="Session playback position" min={0}
+        max={session.duration_seconds || 0} step={0.01} value={time} disabled={!ready || !!error}
+        aria-valuetext={`${time.toFixed(2)} seconds into the session`}
+        onChange={(event) => seek(Number(event.target.value))} />
+      <select aria-label="Playback speed for all videos" value={rate} onChange={(event) => setRate(Number(event.target.value))}>
+        {[0.5, 1, 1.5, 2].map((value) => <option value={value} key={value}>{value}×</option>)}
+      </select>
+    </div>
+    {error ? <div className="alert" role="alert"><TriangleAlert size={16} /><span>{error}</span>
+      <button className="text-button" onClick={() => setRetry((value) => value + 1)}>Retry synchronization</button></div>
+      : <div className="panel-footnote" role="status">{!ready || buffering ? <LoaderCircle size={14} className="spin" /> : <Video size={14} />}
+        {!ready ? "Loading videos and LSL frame timestamps…" : buffering ? "Buffering videos together…" : "Shared session timeline · Video positions follow the recorded LSL frame timestamps"}</div>}
+  </>;
+}
+
 export function SessionVideos({ session }: { session: Session }) {
   const active = session.status === "recording";
-  return <>{session.streams.map((stream, index) => {
-    if (stream.video_format !== "mp4") return null;
-    const webcam = /webcam/i.test(stream.type);
-    const base = `/api/sessions/${encodeURIComponent(session.id)}/streams/${index}`;
-    return <section className="panel video-panel" key={`${session.id}-${stream.uid}`}>
-      <div className="panel-heading"><div><h2>{webcam
-        ? active ? "Live webcam" : "Webcam recording"
-        : active ? "Live gameplay" : "Gameplay recording"}</h2>
-        <p>{stream.name}</p></div>
-        {active ? <Badge tone="warning">Live · up to 5 fps preview</Badge>
-          : stream.video_status === "ready" && <a className="button button-secondary" href={`${base}/video?download=true`} download>
-            <ArrowDownToLine size={15} />Download MP4</a>}
+  const sources = useMemo(() => session.streams.map((stream, index) => ({
+    stream, index, base: `/api/sessions/${encodeURIComponent(session.id)}/streams/${index}`,
+  })).filter(({ stream }) => stream.video_format === "mp4")
+    .sort((a, b) => Number(/webcam/i.test(a.stream.type)) - Number(/webcam/i.test(b.stream.type))),
+  [session.id, session.streams]);
+  const panel = useRef<HTMLElement>(null);
+  if (!sources.length) return null;
+  const gameplay = !/webcam/i.test(sources[0].stream.type);
+  return <section className="panel video-panel" ref={panel}>
+    <div className="panel-heading"><div><h2>{gameplay ? active ? "Live gameplay" : "Gameplay recording" : active ? "Live webcam" : "Webcam recording"}</h2>
+      <p>{sources.map(({ stream }) => stream.name).join(" + ")}</p></div>
+      <div className="video-toolbar">{active ? <Badge tone="warning">Live · up to 5 fps preview</Badge> : <Badge tone="positive">LSL session timeline</Badge>}
+        <button className="icon-button" aria-label="Fullscreen gameplay and webcam" onClick={() => {
+          if (document.fullscreenElement) void document.exitFullscreen(); else void panel.current?.requestFullscreen().catch(() => undefined);
+        }}><Maximize size={16} /></button>
       </div>
-      {active ? <LivePreview url={`${base}/preview`} source={stream.name} /> : stream.video_status === "ready"
-        ? <video className="recorded-video" controls playsInline preload="metadata" aria-label={`${stream.name} recording`} src={`${base}/video`}>
-          Your browser does not support video playback. Download the MP4 to watch it locally.
-        </video>
-        : <EmptyState title={stream.video_status === "failed" ? "Video recording failed" : "No video frames saved"}
-          description={stream.video_error || "This source did not produce a finalized video."} />}
-      {stream.video_warning && <div className="alert" role="alert"><TriangleAlert size={16} />{stream.video_warning}</div>}
-      <div className="panel-footnote"><Video size={14} />{active
-        ? "The MP4 records at the configured capture rate. Preview quality is reduced to limit load."
-        : `${(stream.video_frame_count || 0).toLocaleString()} frames · H.264 MP4 · Frame timestamps saved alongside the video`}</div>
-    </section>;
-  })}</>;
+    </div>
+    {active ? <VideoLayout sources={sources} render={(source) => <LivePreview url={`${source.base}/preview`} source={source.stream.name} />} />
+      : sources.some(({ stream }) => stream.video_status === "ready")
+        ? <RecordedStage key={session.id} session={session} sources={sources} />
+        : <EmptyState title="No video frames saved" description={sources.find(({ stream }) => stream.video_error)?.stream.video_error || "No finalized video is available."} />}
+    {sources.filter(({ stream }) => stream.video_warning).map(({ stream }) => <div className="alert" role="alert" key={stream.uid}><TriangleAlert size={16} />{stream.video_warning}</div>)}
+    {active ? <div className="panel-footnote"><Video size={14} />The MP4 records at the configured capture rate. Preview quality is reduced to limit load.</div>
+      : <div className="video-downloads">{sources.filter(({ stream }) => stream.video_status === "ready").map((source) =>
+        <a className="button button-secondary" key={source.stream.uid} href={`${source.base}/video?download=true`} download><ArrowDownToLine size={15} />{source.stream.name} MP4</a>)}</div>}
+  </section>;
 }

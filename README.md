@@ -98,8 +98,8 @@ engagelab webcam --device 0 --fps 30 --width 1280 --height 720 --crf 23
 Restart the backend after upgrading, discover streams in the frontend, and select
 **Webcam** alongside **Screen recording** or other modalities. Both sources start and stop
 with the session. The recording monitor shows a preview for each selected video source;
-session details provide separate players and MP4 downloads after stopping. Webcam defaults
-to camera index 0; try `--device 1` for another camera. On macOS, allow Camera access for
+session details provide gameplay with a webcam overlay and MP4 downloads after stopping.
+Webcam defaults to camera index 0; try `--device 1` for another camera. On macOS, allow Camera access for
 PyCharm or Terminal in System Settings > Privacy & Security and restart the application
 if necessary. Close other applications using the camera if it cannot be opened.
 
@@ -115,6 +115,23 @@ Output is padded to the configured dimensions while preserving the captured aspe
 Timestamps use the LSL clock immediately after a successful camera read, before encoding;
 camera exposure and driver buffering latency are not corrected. Preview remains capped
 at 5 fps. Actual device permissions and performance need checking on the target camera.
+
+## Synchronized playback
+
+Gameplay is displayed with the webcam in the upper-right corner, in live view and session
+playback. The normal view is limited to half the window height; fullscreen expands both
+layers together. Recorded videos share play/pause, a session timeline and playback speed.
+
+The backend joins received LSL frame indices and their clock-corrected `session_seconds`
+with each video's `.frames.jsonl` presentation times. The player uses this per-frame
+mapping, including different start times and clock-offset changes, rather than starting
+both MP4s at zero. Outside a source's recorded interval it shows a placeholder. Seeking
+updates every video, buffering pauses the common clock, and playback drift is corrected.
+Browser decoding and rendering still limit display precision; this is not a guarantee of
+frame-accurate presentation. Live JPEG previews remain independent low-rate previews.
+
+Restart the backend after updating to enable the `video-timing` API. Synchronization data
+is loaded once per opened session, without continuous timing requests during playback.
 
 ## Record without the UI
 
@@ -147,5 +164,5 @@ recordings may remain marked as recording; their already-flushed files are prese
 ruff check .
 pytest -m 'not integration'
 pytest -m integration       # requires local LSL network discovery
-cd frontend && npm run build
+cd frontend && npm test && npm run build
 ```
