@@ -146,3 +146,41 @@ def test_delete_cannot_follow_session_symlinks(tmp_path):
     with TestClient(app) as client:
         assert client.delete(f"/api/sessions/{session_id}").status_code == 400
     assert (external / "keep.mp4").read_bytes() == b"keep"
+
+
+def test_xdf_download_and_active_recording_guard(tmp_path):
+    app = create_app(tmp_path)
+    session = app.state.store.create("XDF download")
+    session.update(status="completed", recording_format="xdf")
+    app.state.store.save(session)
+    path = app.state.store.directory(session["id"]) / "recording.xdf"
+    path.write_bytes(b"XDF:example")
+    with TestClient(app) as client:
+        url = f"/api/sessions/{session['id']}/xdf"
+        response = client.get(url)
+        assert response.content == b"XDF:example"
+        assert ".xdf" in response.headers["content-disposition"]
+        session["status"] = "recording"
+        app.state.store.save(session)
+        assert client.get(url).status_code == 409
+        session.update(status="completed", recording_format="legacy")
+        app.state.store.save(session)
+        assert client.get(url).status_code == 404
+
+
+def test_missing_labrecorder_is_reported_without_a_generic_connection_error(tmp_path, monkeypatch):
+    from engagelab_pipeline.xdf import XDFUnavailable
+
+    app = create_app(tmp_path)
+    session = app.state.store.create("Missing recorder")
+
+    def unavailable(*_):
+        raise XDFUnavailable("Install LabRecorderCLI")
+
+    monkeypatch.setattr(app.state.recorder, "start", unavailable)
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/sessions/{session['id']}/start", json={"stream_uids": ["uid"]}
+        )
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Install LabRecorderCLI"

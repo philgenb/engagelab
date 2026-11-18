@@ -10,6 +10,7 @@ from engagelab_pipeline.recorder import Recorder, RecordingConflict
 from engagelab_pipeline.sources.video_control import VideoCaptureError
 from engagelab_pipeline.storage import SessionStore
 from engagelab_pipeline.video_timing import load_video_timing
+from engagelab_pipeline.xdf import XDFUnavailable
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -98,6 +99,8 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(400, str(exc)) from exc
         except VideoCaptureError as exc:
             raise HTTPException(503, str(exc)) from exc
+        except XDFUnavailable as exc:
+            raise HTTPException(503, str(exc)) from exc
         except Exception as exc:
             raise HTTPException(503, "Could not connect to all selected LSL streams") from exc
 
@@ -164,6 +167,26 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(404, str(exc)) from exc
         except (ValueError, KeyError) as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/api/sessions/{session_id}/xdf")
+    def recording_xdf(session_id: UUID):
+        try:
+            saved = store.get(str(session_id))
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "Session not found") from exc
+        if saved["status"] == "recording":
+            raise HTTPException(409, "Stop the recording before downloading the XDF")
+        directory = store.directory(str(session_id)).resolve()
+        path = directory / "recording.xdf"
+        if (
+            saved.get("recording_format") != "xdf"
+            or not path.is_file()
+            or path.resolve().parent != directory
+        ):
+            raise HTTPException(404, "No XDF recording is available for this session")
+        return FileResponse(
+            path, media_type="application/octet-stream", filename=f"{session_id}.xdf"
+        )
 
     @app.get("/api/sessions/{session_id}/streams/{stream_index}/video")
     def video(session_id: UUID, stream_index: int, download: bool = False):

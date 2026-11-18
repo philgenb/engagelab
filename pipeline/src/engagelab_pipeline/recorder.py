@@ -2,7 +2,6 @@
 
 import copy
 import json
-import math
 import threading
 import time
 from contextlib import ExitStack
@@ -12,18 +11,11 @@ from typing import IO
 from .lsl import describe, load_lsl
 from .sources.video_control import VideoCaptureError, VideoClient
 from .storage import SessionStore, utc_now
+from .xdf import LabRecorder, XDFUnavailable, load_recording, session_samples
 
 
 class RecordingConflict(RuntimeError):
     pass
-
-
-def clean_values(value):
-    if isinstance(value, float) and not math.isfinite(value):
-        return None
-    if isinstance(value, (list, tuple)):
-        return [clean_values(item) for item in value]
-    return value
 
 
 def append_json(file: IO[str], value: dict) -> None:
@@ -35,7 +27,6 @@ def append_json(file: IO[str], value: dict) -> None:
 class Source:
     inlet: object
     metadata: dict
-    file: IO[str]
     correction: float
     next_correction: float
     video: VideoClient | None = None
@@ -53,6 +44,8 @@ class Recorder:
         self._stop_at: float | None = None
         self._lsl = None
         self._sources: list[Source] = []
+        self._markers = None
+        self._xdf = None
 
     def delete_session(self, session_id: str) -> None:
         # Share the start/stop lock so a recording cannot start while it is being deleted.
@@ -120,9 +113,6 @@ class Recorder:
             resources = ExitStack()
             try:
                 directory = self.store.directory(session_id)
-                offsets = resources.enter_context(
-                    (directory / "clock_offsets.jsonl").open("x", encoding="utf-8")
-                )
                 events = resources.enter_context(
                     (directory / "events.jsonl").open("x", encoding="utf-8")
                 )
@@ -132,8 +122,14 @@ class Recorder:
                     resources.callback(inlet.close_stream)
                     inlet.open_stream(timeout=2.0)
                     info = inlet.info(timeout=2.0)
+                    if info.channel_format() == lsl.cf_int64:
+                        raise XDFUnavailable(
+                            f"{info.name()} uses int64, which LabRecorderCLI does not support. "
+                            "Restart the updated screen/webcam publisher, "
+                            "or publish int32/double64."
+                        )
                     correction = inlet.time_correction(timeout=2.0)
-                    filename = f"stream_{index:02d}.jsonl"
+                    filename = "recording.xdf"
                     metadata = {
                         **describe(info),
                         "data_file": filename,
@@ -145,24 +141,41 @@ class Recorder:
                     (directory / metadata["metadata_file"]).write_text(
                         info.as_xml(), encoding="utf-8"
                     )
-                    data = resources.enter_context(
-                        (directory / filename).open("x", encoding="utf-8")
-                    )
                     now = lsl.local_clock()
-                    append_json(
-                        offsets,
-                        {"stream_uid": uid, "measured_at_lsl": now, "offset_seconds": correction},
-                    )
                     sources.append(
                         Source(
                             inlet,
                             metadata,
-                            data,
                             correction,
                             now + 5.0,
                             VideoClient.from_info(info),
                         )
                     )
+                marker_source = f"engagelab-session-{session_id}"
+                marker_info = lsl.StreamInfo(
+                    "EngageLab session", "Markers", 1, 0, "string", marker_source
+                )
+                marker_info.desc().append_child_value("session_id", session_id)
+                marker_info.desc().append_child_value("session_name", session["name"])
+                marker_info.desc().append_child_value("game", session["game"])
+                marker_info.desc().append_child_value(
+                    "video_files",
+                    json.dumps(
+                        [
+                            {
+                                "stream_uid": source.metadata["uid"],
+                                "file": f"stream_{index:02d}.mp4",
+                                "timing_file": f"stream_{index:02d}.frames.jsonl",
+                            }
+                            for index, source in enumerate(sources)
+                            if source.video
+                        ]
+                    ),
+                )
+                self._markers = lsl.StreamOutlet(marker_info)
+                self._xdf = LabRecorder(directory / "recording.xdf", directory / "labrecorder.log")
+                resources.callback(self._xdf.close)
+                self._xdf.start([*stream_uids, self._markers.get_info().uid()], self._markers)
                 # Discard pre-session buffering; timestamps define the actual recording boundary.
                 for source in sources:
                     source.inlet.flush()
@@ -173,10 +186,18 @@ class Recorder:
                         "started_at": utc_now(),
                         "started_lsl": start,
                         "streams": [s.metadata for s in sources],
-                        "timestamp_policy": "raw LSL + separately logged clock offsets",
-                        "non_finite_values": "stored as null",
+                        "schema_version": 2,
+                        "recording_format": "xdf",
+                        "xdf_file": "recording.xdf",
+                        "session_marker_source_id": marker_source,
+                        "timestamp_policy": (
+                            "raw LSL timestamps and clock offsets in XDF; "
+                            "pyxdf offline clock synchronization"
+                        ),
+                        "non_finite_values": "preserved in XDF",
                     }
                 )
+                self._markers.push_sample(["start"], timestamp=start)
                 self._session = session
                 self._lsl = lsl
                 self._sources = sources
@@ -188,6 +209,7 @@ class Recorder:
                         source.metadata.update(
                             video_file=f"stream_{index:02d}.mp4",
                             video_format="mp4",
+                            video_timing_file=f"stream_{index:02d}.frames.jsonl",
                             video_status="recording",
                         )
                         resources.callback(self._finish_video, source, session_id, start)
@@ -196,13 +218,17 @@ class Recorder:
                 append_json(events, {"event": "recording_started", "local_lsl": start})
                 self._thread = threading.Thread(
                     target=self._run,
-                    args=(sources, offsets, events, resources),
+                    args=(sources, events, resources),
                     name="engagelab-recorder",
                     daemon=False,
                 )
                 self._thread.start()
             except Exception as exc:
-                resources.close()
+                try:
+                    resources.close()
+                except Exception as cleanup:
+                    exc.add_note(f"Recording cleanup failed: {cleanup}")
+                self._markers = None
                 session.update({"status": "failed", "error": str(exc), "ended_at": utc_now()})
                 self._session = session
                 self.store.save(session)
@@ -227,8 +253,10 @@ class Recorder:
                 source.metadata["video_first_frame_session_seconds"] = (
                     first + source.correction - start
                 )
-            source.metadata["video_timing_file"] = (
-                source.metadata["data_file"].removesuffix(".jsonl") + ".frames.jsonl"
+            source.metadata.setdefault(
+                "video_timing_file",
+                source.metadata.get("metadata_file", source.metadata["data_file"]).rsplit(".", 1)[0]
+                + ".frames.jsonl",
             )
             if source.metadata["video_status"] == "failed":
                 source.metadata.setdefault("video_error", "MP4 recording failed")
@@ -239,7 +267,6 @@ class Recorder:
         samples, timestamps = source.inlet.pull_chunk(timeout=0.0, max_samples=1024)
         if not timestamps:
             return 0
-        received = self._lsl.local_clock()
         with self._lock:
             start = self._session["started_lsl"]
             cutoff = self._stop_at
@@ -250,17 +277,6 @@ class Recorder:
             and (cutoff is None or stamp + source.correction < cutoff)
         ]
         if rows:
-            append_json(
-                source.file,
-                {
-                    "received_lsl": received,
-                    "clock_offset_seconds": source.correction,
-                    "timestamps_lsl": [row[1] for row in rows],
-                    "timestamps_local": [row[2] for row in rows],
-                    "session_seconds": [row[2] - start for row in rows],
-                    "values": [clean_values(row[0]) for row in rows],
-                },
-            )
             with self._lock:
                 if source.video and "video_first_frame_session_seconds" not in source.metadata:
                     for sample, _stamp, local in rows:
@@ -271,23 +287,16 @@ class Recorder:
                 source.metadata["last_sample_local"] = rows[-1][2]
         return len(timestamps)
 
-    def _run(self, sources, offsets, events, resources) -> None:
+    def _run(self, sources, events, resources) -> None:
         error = None
         try:
             while not self._stop.is_set():
+                self._xdf.check()
                 for source in sources:
                     now = self._lsl.local_clock()
                     if now >= source.next_correction:
                         try:
                             source.correction = source.inlet.time_correction(timeout=0.05)
-                            append_json(
-                                offsets,
-                                {
-                                    "stream_uid": source.metadata["uid"],
-                                    "measured_at_lsl": now,
-                                    "offset_seconds": source.correction,
-                                },
-                            )
                         except self._lsl.TimeoutError:
                             append_json(
                                 events,
@@ -311,6 +320,10 @@ class Recorder:
             error = str(exc)
         finally:
             try:
+                with self._lock:
+                    if self._stop_at is None:
+                        self._stop_at = self._lsl.local_clock()
+                        self._markers.push_sample(["stop"], timestamp=self._stop_at)
                 for source in sources:
                     if source.video:
                         self._finish_video(
@@ -318,6 +331,24 @@ class Recorder:
                         )
                         if source.metadata.get("video_error"):
                             error = source.metadata["video_error"]
+                try:
+                    self._xdf.close()
+                    streams, xdf_start, xdf_stop = load_recording(
+                        self.store.directory(self._session["id"]), self._session
+                    )
+                    with self._lock:
+                        for source in sources:
+                            _, times = session_samples(
+                                streams[source.metadata["uid"]], xdf_start, xdf_stop
+                            )
+                            source.metadata["sample_count"] = len(times)
+                            source.metadata["last_sample_local"] = (
+                                float(times[-1] + xdf_start) if len(times) else None
+                            )
+                        self._session["xdf_started_lsl"] = xdf_start
+                        self._session["xdf_ended_lsl"] = xdf_stop
+                except Exception as exc:
+                    error = str(exc)
                 with self._lock:
                     end = self._stop_at or self._lsl.local_clock()
                     for source in sources:
@@ -329,7 +360,8 @@ class Recorder:
                             "status": "failed" if error else "completed",
                             "ended_at": utc_now(),
                             "ended_lsl": end,
-                            "duration_seconds": end - self._session["started_lsl"],
+                            "duration_seconds": self._session.get("xdf_ended_lsl", end)
+                            - self._session.get("xdf_started_lsl", self._session["started_lsl"]),
                         }
                     )
                     if error:
@@ -340,6 +372,7 @@ class Recorder:
                     self.store.save(self._session)
             finally:
                 resources.close()
+                self._markers = None
 
     def stop(self) -> dict:
         with self._lock:
@@ -347,9 +380,10 @@ class Recorder:
                 raise RecordingConflict("No recording is running")
             if self._stop_at is None:
                 self._stop_at = self._lsl.local_clock()
+                self._markers.push_sample(["stop"], timestamp=self._stop_at)
             self._stop.set()
             thread = self._thread
-        thread.join(timeout=10.0)
+        thread.join(timeout=45.0)
         if thread.is_alive():
             raise RuntimeError("Recorder is still shutting down")
         return self.snapshot()

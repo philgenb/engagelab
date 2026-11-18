@@ -1,6 +1,5 @@
 """Exercise video timing and session control without capturing the user's screen."""
 
-import io
 import json
 from types import SimpleNamespace
 
@@ -109,7 +108,6 @@ def test_recorder_links_video_to_session_and_reports_finalize_errors(tmp_path):
             "data_file": "stream_00.jsonl",
             "video_first_frame_session_seconds": 0.3,
         },
-        io.StringIO(),
         0.1,
         200,
         SimpleNamespace(stop=lambda _: result),

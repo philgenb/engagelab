@@ -51,7 +51,7 @@ def create_stream_info(lsl, config: WebcamConfig, server):
         "Webcam",
         1,
         0,
-        "int64",
+        "int32",
         f"engagelab-webcam-{uuid4().hex}",
     )
     desc = info.desc()

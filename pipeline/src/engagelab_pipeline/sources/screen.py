@@ -86,7 +86,7 @@ def create_stream_info(lsl, config: ScreenConfig, monitor: dict, server):
         "ScreenRecording",
         1,
         0,
-        "int64",
+        "int32",
         f"engagelab-screen-{uuid4().hex}",
     )
     desc = info.desc()

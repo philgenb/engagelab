@@ -1,5 +1,3 @@
-import io
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -7,23 +5,17 @@ from engagelab_pipeline.recorder import Recorder, RecordingConflict, Source
 from engagelab_pipeline.storage import SessionStore
 
 
-def test_raw_timestamps_offsets_and_session_boundaries(tmp_path):
+def test_live_monitor_respects_clock_offsets_and_session_boundaries(tmp_path):
     recorder = Recorder(SessionStore(tmp_path))
     recorder._session = {"started_lsl": 100.0}
     recorder._stop_at = 103.0
     recorder._lsl = SimpleNamespace(local_clock=lambda: 110.0)
     inlet = SimpleNamespace(pull_chunk=lambda **_: ([[1], [float("nan")], [3]], [94, 96, 99]))
-    data = io.StringIO()
-    source = Source(inlet, {"sample_count": 0}, data, 5.0, 115.0)
+    source = Source(inlet, {"sample_count": 0}, 5.0, 115.0)
 
     assert recorder._collect(source) == 3
-    row = json.loads(data.getvalue())
-    assert row["timestamps_lsl"] == [96]
-    assert row["timestamps_local"] == [101]
-    assert row["session_seconds"] == [1]
-    assert row["clock_offset_seconds"] == 5
-    assert row["values"] == [[None]]
     assert source.metadata["sample_count"] == 1
+    assert source.metadata["last_sample_local"] == 101
 
 
 def test_sessions_are_isolated_and_cannot_escape_data_directory(tmp_path):

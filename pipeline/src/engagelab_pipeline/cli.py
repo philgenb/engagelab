@@ -13,6 +13,7 @@ from .sources.screen import ScreenConfig, list_monitors, run_screen
 from .sources.video_control import VideoCaptureError
 from .sources.webcam import WebcamConfig, run_webcam
 from .storage import SessionStore
+from .xdf import XDFUnavailable
 
 
 def main() -> None:
@@ -99,6 +100,8 @@ def main() -> None:
         recorder.start(session["id"], uids)
         print(f"Recording {session['id']} for {args.duration:g} seconds.", flush=True)
         stop.wait(args.duration)
+    except XDFUnavailable as exc:
+        parser.exit(2, f"Error: {exc}\n")
     finally:
         recorder.close()
     result = store.get(session["id"])
