@@ -12,11 +12,14 @@ An interactive tool for recording and exploring multimodal data during video gam
 
 Requires Python 3.11+, Node.js 22.12+, and liblsl. If pylsl cannot load liblsl on macOS,
 install it with `brew install labstreaminglayer/tap/lsl`.
+Recording uses the official LabRecorder CLI. Build it once locally (C++20 compiler
+required, e.g. Xcode Command Line Tools on macOS or Visual Studio Build Tools on Windows):
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e '.[dev]'
+pip install -e '.[dev,xdf-build]'
+python scripts/setup_labrecorder.py
 uvicorn engagelab_backend.app:app --host 127.0.0.1 --port 8000
 ```
 
@@ -32,12 +35,19 @@ Open the Vite URL. Run `engagelab demo` in a third terminal to publish synthetic
 input, and gameplay metrics, then refresh and select the streams in the interface.
 API documentation: <http://127.0.0.1:8000/docs>.
 
+The setup builds pinned LabRecorder/liblsl sources into `.tools/labrecorder/` without a GUI
+or system-wide installation. The sources' licenses are included there. An existing
+LabRecorderCLI can instead be selected with `ENGAGELAB_LABRECORDER=/absolute/path/to/LabRecorderCLI`
+(use `LabRecorderCLI.exe` on Windows), or placed on `PATH`. Without it, session start reports
+an installation error. `pyxdf` is installed with EngageLab for offline clock synchronization.
+
 ## PyCharm
 
 Open `engagelab/` as the project. Shared configurations are in `.run/` and use
 `.venv/bin/python`: **EngageLab Demo Streams**, **EngageLab Discover Streams**,
 **EngageLab Record Demo**, and **EngageLab Backend**. Start Demo Streams before
 Record Demo. Stop the demo publisher manually when finished.
+**EngageLab Setup LabRecorder** runs the one-time native build using the same interpreter.
 
 ## Screen recording stream
 
@@ -52,7 +62,8 @@ engagelab screen --monitor 1 --fps 30 --max-width 1280 --crf 23
 In the frontend, discover streams, select **Screen recording**, and start a session.
 **Live monitor** shows the gameplay preview during recording. Stop and save the session,
 then open **View session** to play the MP4 or download it. Restart an already running
-backend and screen publisher after upgrading from the earlier JPEG stream implementation.
+backend and both video publishers after updating to XDF recording. Video frame markers now
+use int32, which LabRecorder supports; the earlier int64 video streams must be restarted.
 
 The publisher runs until stopped, but only captures pixels during a session started by
 EngageLab. Session start/stop controls the video through an authenticated loopback HTTP
@@ -64,7 +75,7 @@ On macOS, allow Screen & System Audio Recording for the application running Pyth
 (e.g. PyCharm or Terminal) in System Settings > Privacy & Security, then restart it.
 
 Video is saved directly as H.264 MP4 in the session directory, e.g. `stream_00.mp4`.
-Each LSL sample contains a zero-based frame index in one int64 channel, with a capture
+Each LSL sample contains a zero-based frame index in one int32 channel, with a capture
 timestamp estimated from the midpoint of clock readings before and after the screen grab.
 The stream has an irregular nominal rate because capture timing can vary. `--fps` sets
 the target rate; `--crf` sets H.264 quality (lower is better, default 23). Capture is
@@ -73,9 +84,9 @@ video path template.
 
 MP4 presentation timestamps preserve actual capture intervals, relative to the first
 frame. `stream_00.frames.jsonl` maps every video frame to its original LSL timestamp and
-video time. The regular `stream_00.jsonl` contains the received LSL markers with clock
-offsets and session-relative times. `session.json` links the video, timing file and first
-frame's session-relative time. Use these times for alignment rather than frame index
+video time. `recording.xdf` contains the received LSL markers and clock offsets alongside
+the other selected streams. `session.json` links the video and timing file to the XDF
+stream UID. Use the synchronized frame times for alignment rather than frame index
 divided by target FPS. Recording boundaries apply to the received markers; the video can
 contain a few additional frames while the publisher processes the stop request.
 
@@ -126,9 +137,13 @@ preferences are remembered in the browser; **Reset layout** restores the default
 Fullscreen expands both layers together. Recorded videos share play/pause, a session
 timeline and playback speed.
 
-The backend joins received LSL frame indices and their clock-corrected `session_seconds`
-with each video's `.frames.jsonl` presentation times. The player uses this per-frame
-mapping, including different start times and clock-offset changes, rather than starting
+The backend imports `recording.xdf` with `pyxdf`, enabling offline clock synchronization
+and clock-reset handling while preserving recorded acquisition intervals (dejittering
+is disabled). An internal LSL marker stream records session start/stop and includes the
+video file associations. Its corrected timestamps define the common session timeline.
+Video frame indices from XDF are joined with each video's `.frames.jsonl` presentation
+times. The player uses this per-frame mapping, including different start times and clock
+drift correction, rather than starting
 both MP4s at zero. Outside a source's recorded interval it shows a placeholder. Seeking
 updates every video, buffering pauses the common clock, and playback drift is corrected.
 Browser decoding and rendering still limit display precision; this is not a guarantee of
@@ -136,6 +151,7 @@ frame-accurate presentation. Live JPEG previews remain independent low-rate prev
 
 Restart the backend after updating to enable the `video-timing` API. Synchronization data
 is loaded once per opened session, without continuous timing requests during playback.
+Existing JSONL sessions use the previous reader and remain available without conversion.
 
 ## Record without the UI
 
@@ -150,13 +166,22 @@ For real sources, repeat `--stream UID` using UIDs from `engagelab discover`.
 Other devices must already publish LSL streams. Additional hardware adapters,
 annotation, and synchronized signal analysis are not implemented yet.
 
-Each recording contains `session.json`, per-stream XML metadata and chunked JSONL data,
-`clock_offsets.jsonl`, and `events.jsonl`. Samples retain original LSL timestamps,
-receiver-clock timestamps, and seconds relative to session start. Clock offsets are
-logged separately and refreshed every five seconds. Non-finite values become `null`.
-This is a basic JSONL recorder, not an XDF implementation or drift-correcting offline importer.
-For XDF acquisition and offline synchronization, use
-[LabRecorder](https://github.com/labstreaminglayer/App-LabRecorder).
+New sessions contain:
+
+- `recording.xdf`: all selected LSL streams, original samples/timestamps, XML headers,
+  clock offsets and an internal session marker stream, written by
+  [LabRecorder](https://github.com/labstreaminglayer/App-LabRecorder). Raw non-finite values
+  are preserved. Samples before/after the session markers are retained in XDF and excluded
+  from session playback and final sample counts.
+- `session.json`: session details, stream UIDs, file associations and recording status.
+- `stream_XX.mp4` and `stream_XX.frames.jsonl`: video and exact frame presentation times.
+- `stream_XX.xml`: an additional readable copy of each selected stream's metadata.
+- `events.jsonl` and `labrecorder.log`: session events and recorder diagnostics.
+
+There are no new per-stream JSONL measurement files or separate `clock_offsets.jsonl`.
+**Download XDF** in session details downloads the raw recording. Live counters use separate
+LSL inlets; after stopping, final counts are calculated from the synchronized XDF session.
+Finalizing the file and importing its timing information can take several seconds.
 
 Recordings default to `data/`; set `ENGAGELAB_DATA_DIR` to change the location.
 Use one backend process and keep it bound to localhost. After an interrupted process,
@@ -167,6 +192,6 @@ recordings may remain marked as recording; their already-flushed files are prese
 ```sh
 ruff check .
 pytest -m 'not integration'
-pytest -m integration       # requires local LSL network discovery
+pytest -m integration       # requires LabRecorderCLI and local LSL network discovery
 cd frontend && npm test && npm run build
 ```

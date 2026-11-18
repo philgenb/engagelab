@@ -341,7 +341,9 @@ function SessionDetails({ id, live }: { id: string; live: Session | null }) {
   return <>
     <button className="text-button back-link" onClick={() => navigate("library")}>← Session library</button>
     <PageHeading title={session.name} description={`${session.game || "No game specified"} · ${formatDate(session.created_at)} · ${formatDuration(session.duration_seconds)} recorded`}
-      action={<><StatusBadge status={session.status} /><button className="button button-secondary" onClick={() => downloadMetadata(session)}><ArrowDownToLine size={15} />Download metadata</button></>} />
+      action={<><StatusBadge status={session.status} />
+        {session.recording_format === "xdf" && session.status !== "recording" && <a className="button button-secondary" href={`/api/sessions/${encodeURIComponent(session.id)}/xdf`} download><ArrowDownToLine size={15} />Download XDF</a>}
+        <button className="button button-secondary" onClick={() => downloadMetadata(session)}><ArrowDownToLine size={15} />Download metadata</button></>} />
     <div className="recording-metrics detail-metrics"><Metric label="Duration" value={formatDuration(session.duration_seconds)} note="Total recording time" />
       <Metric label="Recorded sources" value={String(session.streams.length)} note="With individual stream metadata" />
       <Metric label="Saved samples" value={samples.toLocaleString()} note="Across all recorded sources" /></div>

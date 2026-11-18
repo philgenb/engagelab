@@ -26,6 +26,8 @@ export type Session = {
   started_at?: string;
   ended_at?: string;
   duration_seconds?: number;
+  recording_format?: "xdf";
+  xdf_file?: string;
   error?: string;
   streams: Stream[];
 };
