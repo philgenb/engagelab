@@ -49,7 +49,7 @@ strong { font-weight: 500; }
 .brand { display: flex; align-items: center; gap: 9px; padding: 3px 0 35px; }
 .brand-mark { display: block; flex: none; }
 /* Center the visible lettering on the mark. */
-.brand-name { font-size: 20px; font-weight: 600; line-height: 1.2; transform: translateY(-2px); }
+.brand-name { font-size: 20px; font-weight: 600; line-height: 1.2; transform: translateY(-1px); }
 .sidebar nav { display: grid; gap: 4px; }
 .nav-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 11px 12px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); text-align: left; font-size: 13px; }
 .nav-item:hover { background: var(--raised); color: var(--text); }
