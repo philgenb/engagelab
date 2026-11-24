@@ -15,6 +15,8 @@ from .video_service import VideoService
 
 @dataclass(frozen=True)
 class WebcamConfig:
+    """Configure the camera device, output dimensions, target frame rate, and quality."""
+
     device: int = 0
     fps: float = 30.0
     width: int = 1280
@@ -23,6 +25,7 @@ class WebcamConfig:
     data_dir: Path | None = None
 
     def __post_init__(self):
+        """Validate the camera index, frame rate, and encoder settings."""
         if self.device < 0:
             raise ValueError("--device must be a non-negative camera index")
         if not math.isfinite(self.fps) or not 0 < self.fps <= 60:
@@ -34,6 +37,7 @@ class WebcamConfig:
 
 
 def capture_dependencies():
+    """Load the optional webcam capture and image dependencies."""
     try:
         import av  # noqa: F401
         import cv2
@@ -46,6 +50,7 @@ def capture_dependencies():
 
 
 def create_stream_info(lsl, config: WebcamConfig, server):
+    """Describe the webcam frame marker stream and its local control endpoint."""
     info = lsl.StreamInfo(
         "Webcam",
         "Webcam",
@@ -81,7 +86,10 @@ def create_stream_info(lsl, config: WebcamConfig, server):
 
 
 class WebcamService(VideoService):
+    """Open the camera on session start and release it when capture ends."""
+
     def __init__(self, config: WebcamConfig, cv2, image_module, lsl):
+        """Set up an idle webcam publisher with the capture and clock dependencies."""
         super().__init__(config, (config.width, config.height), "Webcam")
         self.cv2 = cv2
         self.image_module = image_module
@@ -90,6 +98,7 @@ class WebcamService(VideoService):
         self.pending = None
 
     def open_capture(self):
+        """Open the camera, request its settings, and retain the first timed frame."""
         # Open on session start, so discovery does not activate the camera.
         camera = self.cv2.VideoCapture(self.config.device)
         self.camera = camera
@@ -115,12 +124,18 @@ class WebcamService(VideoService):
             raise
 
     def close_capture(self):
+        """Release the camera and clear any pending frame."""
         if self.camera is not None:
             self.camera.release()
             self.camera = None
         self.pending = None
 
     def capture_frame(self, outlet):
+        """Write the pending or next camera frame if a recording is active.
+
+        Timestamp new frames immediately after the camera read. That timestamp
+        reflects delivery to the application and includes driver buffering latency.
+        """
         with self.lock:
             if self.writer is None:
                 return
@@ -151,6 +166,7 @@ class WebcamService(VideoService):
 
 
 def run_webcam(stop: threading.Event, config: WebcamConfig) -> None:
+    """Run the webcam outlet and control server until the stop event is set."""
     cv2, image_module = capture_dependencies()
     lsl = load_lsl()
     service = WebcamService(config, cv2, image_module, lsl)

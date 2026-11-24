@@ -10,7 +10,10 @@ from .video_control import VideoCaptureError
 
 
 class VideoService:
+    """Manage recording and preview state for one local video publisher."""
+
     def __init__(self, config, size: tuple[int, int], source_name: str):
+        """Initialize an idle publisher with its output size and session storage."""
         self.source_name = source_name
         self.config = config
         self.size = size
@@ -27,6 +30,12 @@ class VideoService:
     def start(
         self, session_id: str, stream_index: int, start_deadline: float | None = None
     ) -> dict:
+        """Open capture and start writing video for an existing session.
+
+        The stream index determines the MP4 filename. If a publisher-local
+        monotonic deadline is supplied, check it after opening the capture
+        device. Release the device if writer initialization fails.
+        """
         with self.lock:
             if self.writer:
                 raise VideoCaptureError(
@@ -61,6 +70,11 @@ class VideoService:
             return {"video_file": path.name, "video_status": "recording", "video_format": "mp4"}
 
     def stop(self, session_id: str) -> dict:
+        """Finalize the current video, release capture, and return the result.
+
+        A repeated stop for the most recently stopped session returns its saved
+        result while that result is still available.
+        """
         with self.lock:
             if self.session_id != session_id:
                 if self.last_session_id == session_id and self.result:
@@ -82,12 +96,19 @@ class VideoService:
             return self.result
 
     def open_capture(self):
+        """Open per-session hardware when required by the source."""
         pass
 
     def close_capture(self):
+        """Release per-session hardware when required by the source."""
         pass
 
     def write_image(self, image, stamp: float, outlet):
+        """Write a frame, publish its LSL marker, and refresh the preview when due.
+
+        Call with the service lock held. The marker uses the supplied capture
+        timestamp in LSL seconds. Preview JPEGs are capped at five per second.
+        """
         index = self.writer.write(image, stamp)
         outlet.push_sample([index], timestamp=stamp)
         if time.monotonic() >= self.next_preview:

@@ -8,7 +8,10 @@ TIME_BASE = Fraction(1, 1_000_000)
 
 
 class Mp4Recording:
+    """Encode one video and write the frame index and timing sidecar next to it."""
+
     def __init__(self, path: Path, size: tuple[int, int], fps: float, crf: int):
+        """Open an H.264 MP4 and its sidecar, rejecting existing output files."""
         import av
 
         self.path = path
@@ -34,6 +37,12 @@ class Mp4Recording:
             raise
 
     def write(self, image, timestamp: float) -> int:
+        """Encode a frame and return its zero-based index for the LSL marker.
+
+        The timestamp is in LSL clock seconds. Presentation time is measured
+        from the first frame, rounded to the encoder time base, and kept strictly
+        increasing. The sidecar stores both the input timestamp and video time.
+        """
         import av
 
         first = timestamp if self.first_timestamp is None else self.first_timestamp
@@ -62,6 +71,7 @@ class Mp4Recording:
         return index
 
     def close(self) -> dict:
+        """Flush buffered frames, close both files, and return the video status and counts."""
         try:
             for packet in self.stream.encode():
                 self.container.mux(packet)

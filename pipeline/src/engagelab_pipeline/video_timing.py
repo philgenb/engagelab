@@ -8,6 +8,12 @@ from .xdf import load_recording, session_samples
 
 
 def load_video_timing(directory: Path, stream_index: int, duration: float) -> dict:
+    """Return pairs of session seconds and MP4 presentation seconds for one stream.
+
+    Join clock-corrected XDF markers to the video sidecar by frame index.
+    Earlier sessions use their recorded JSON Lines markers and stored duration.
+    Reject missing files, unmatched frames, and non-monotonic time mappings.
+    """
     directory = directory.resolve()
     paths = [directory / f"stream_{stream_index:02d}.frames.jsonl"]
     session_file = directory / "session.json"
@@ -67,6 +73,7 @@ def load_video_timing(directory: Path, stream_index: int, duration: float) -> di
 
 
 def legacy_markers(path: Path):
+    """Yield frame index samples and session times from an older JSON Lines recording."""
     with path.open(encoding="utf-8") as markers:
         for line in markers:
             chunk = json.loads(line)

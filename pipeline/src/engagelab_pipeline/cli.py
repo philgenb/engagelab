@@ -17,6 +17,11 @@ from .xdf import XDFUnavailable
 
 
 def main() -> None:
+    """Run stream discovery, a publisher, or a timed recording.
+
+    Demo, screen, and webcam publishers run until interrupted. Timed recordings
+    use the same session store and recorder as the HTTP API and finalize on exit.
+    """
     parser = argparse.ArgumentParser(prog="engagelab")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("discover", help="List available LSL streams")

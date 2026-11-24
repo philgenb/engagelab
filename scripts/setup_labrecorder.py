@@ -28,6 +28,7 @@ SOURCES = (
 
 
 def download_source(source):
+    """Download a pinned source archive, verify its SHA-256, and return its unpacked path."""
     repository, tag, folder, expected = source
     destination = TOOLS / "sources"
     destination.mkdir(parents=True, exist_ok=True)
@@ -50,6 +51,7 @@ def download_source(source):
 
 
 def main():
+    """Build and install LabRecorderCLI and liblsl under the project tools directory."""
     cmake = shutil.which("cmake")
     if not cmake:
         executable = Path(sys.executable).parent / (

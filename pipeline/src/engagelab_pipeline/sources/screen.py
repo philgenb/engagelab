@@ -17,6 +17,8 @@ from .video_service import VideoService
 
 @dataclass(frozen=True)
 class ScreenConfig:
+    """Configure the monitor, target frame rate, maximum width, and MP4 quality."""
+
     monitor: int = 1
     fps: float = 30.0
     max_width: int = 1280
@@ -24,6 +26,7 @@ class ScreenConfig:
     data_dir: Path | None = None
 
     def __post_init__(self):
+        """Validate the monitor index and encoder settings."""
         if self.monitor < 1:
             raise ValueError("--monitor must be at least 1; use --list-monitors to find displays")
         if not math.isfinite(self.fps) or not 0 < self.fps <= 60:
@@ -35,6 +38,7 @@ class ScreenConfig:
 
 
 def capture_dependencies():
+    """Load the optional screen capture and image dependencies."""
     try:
         import av  # noqa: F401
         from mss import mss
@@ -47,6 +51,7 @@ def capture_dependencies():
 
 
 def check_permission() -> None:
+    """Check macOS screen recording permission before starting the publisher."""
     if sys.platform != "darwin":
         return
     core_graphics = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
@@ -62,6 +67,7 @@ def check_permission() -> None:
 
 
 def list_monitors() -> list[dict]:
+    """List the physical monitors with the indices used by the CLI."""
     mss, _ = capture_dependencies()
     with mss() as capture:
         # MSS index zero represents the virtual desktop, not a single display.
@@ -73,6 +79,7 @@ def list_monitors() -> list[dict]:
 
 
 def frame_size(monitor: dict, max_width: int) -> tuple[int, int]:
+    """Scale down to the width limit while keeping even dimensions for H.264."""
     width, height = monitor["width"], monitor["height"]
     scale = min(1.0, max_width / width) if max_width else 1.0
     # H.264 with yuv420p requires even dimensions.
@@ -80,6 +87,7 @@ def frame_size(monitor: dict, max_width: int) -> tuple[int, int]:
 
 
 def create_stream_info(lsl, config: ScreenConfig, monitor: dict, server):
+    """Describe the screen frame marker stream and its local control endpoint."""
     width, height = frame_size(monitor, config.max_width)
     info = lsl.StreamInfo(
         "Screen recording",
@@ -118,10 +126,18 @@ def create_stream_info(lsl, config: ScreenConfig, monitor: dict, server):
 
 
 class ScreenService(VideoService):
+    """Capture frames from a selected screen during an active recording."""
+
     def __init__(self, config: ScreenConfig, size: tuple[int, int]):
+        """Initialize the screen publisher with the chosen MP4 output size."""
         super().__init__(config, size, "Screen recording")
 
     def capture_frame(self, capture, monitor, image_module, lsl, outlet):
+        """Capture and write one screen frame if a recording is active.
+
+        Estimate the capture timestamp as the midpoint of the LSL clock
+        readings around the screen grab. Stop this source on capture failure.
+        """
         with self.lock:
             if self.writer is None:
                 return
@@ -139,6 +155,7 @@ class ScreenService(VideoService):
 
 
 def run_screen(stop: threading.Event, config: ScreenConfig) -> None:
+    """Run the screen outlet and control server until the stop event is set."""
     mss, image_module = capture_dependencies()
     check_permission()
     lsl = load_lsl()

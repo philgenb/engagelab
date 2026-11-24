@@ -9,6 +9,7 @@ from .lsl import load_lsl
 
 
 def run_demo(stop: threading.Event) -> None:
+    """Publish synthetic heart-rate, input, and game metrics until the stop event is set."""
     lsl = load_lsl()
     run_id = uuid4().hex
     specs = [

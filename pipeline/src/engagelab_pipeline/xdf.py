@@ -15,10 +15,17 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 class XDFUnavailable(RuntimeError):
+    """Report that LabRecorder could not be found or run successfully."""
+
     pass
 
 
 def find_labrecorder() -> Path:
+    """Locate the LabRecorderCLI executable.
+
+    Check ENGAGELAB_LABRECORDER first, followed by the project-local build
+    and then PATH. An invalid explicit path raises XDFUnavailable.
+    """
     configured = os.environ.get("ENGAGELAB_LABRECORDER")
     if configured:
         path = Path(configured).expanduser()
@@ -43,7 +50,10 @@ def find_labrecorder() -> Path:
 
 
 class LabRecorder:
+    """Manage one LabRecorderCLI subprocess and its diagnostic log."""
+
     def __init__(self, path: Path, log_path: Path):
+        """Resolve the executable and store the recording and log paths."""
         self.executable = find_labrecorder()
         self.path = path.resolve()
         self.log_path = log_path
@@ -52,6 +62,12 @@ class LabRecorder:
         self.next_log_check = 0.0
 
     def start(self, uids: list[str], marker_outlet, timeout: float = 20):
+        """Launch LabRecorder for the supplied stream UIDs.
+
+        Wait up to timeout seconds for stream collection to begin and for the
+        session marker outlet to have a subscriber. Send preparation markers
+        while waiting. The recording coordinator sends the actual start marker.
+        """
         if self.path.exists():
             raise FileExistsError(f"XDF recording already exists: {self.path}")
         if any(not uid or '"' in uid or "'" in uid for uid in uids):
@@ -84,6 +100,7 @@ class LabRecorder:
             raise
 
     def check(self):
+        """Detect an unexpected process exit and check the log at most once a second."""
         if self.process is not None and self.process.poll() is not None:
             raise XDFUnavailable(
                 f"LabRecorder exited with code {self.process.returncode}; see labrecorder.log"
@@ -93,6 +110,7 @@ class LabRecorder:
             self.next_log_check = time.monotonic() + 1.0
 
     def check_log(self):
+        """Raise an error if LabRecorder reported a stream reader failure."""
         if not self.log_path.exists():
             return
         output = self.log_path.read_text(encoding="utf-8", errors="replace")
@@ -105,6 +123,11 @@ class LabRecorder:
             )
 
     def close(self):
+        """Ask LabRecorder to finalize the XDF and wait for it to exit.
+
+        Give the final marker time to reach the inlet before sending a newline
+        to the subprocess. Kill the process if it exceeds the shutdown timeout.
+        """
         if self.process is None:
             if self.log:
                 self.log.close()
@@ -138,17 +161,28 @@ class LabRecorder:
 
 
 def info_value(stream: dict, name: str):
+    """Return the first value of a parsed XDF stream header field, or None."""
     return stream["info"].get(name, [None])[0]
 
 
 @lru_cache(maxsize=2)
 def _load_xdf(path: str, modified: int, size: int):
-    # Preserve acquisition intervals. Clock correction remains enabled for every stream.
+    """Read and cache streams with clock correction and without timestamp smoothing.
+
+    The modification time and file size are part of the cache key so a
+    changed recording is read again.
+    """
     streams, _ = pyxdf.load_xdf(path, synchronize_clocks=True, dejitter_timestamps=False)
     return streams
 
 
 def load_recording(directory: Path, session: dict) -> tuple[dict[str, dict], float, float]:
+    """Return streams keyed by LSL UID and the corrected start and stop times.
+
+    Resolve the session marker stream by source ID, then verify that each
+    stream in the session metadata appears in the recording. The boundary
+    times are in seconds on the corrected LSL clock.
+    """
     directory = directory.resolve()
     path = directory / "recording.xdf"
     if not path.is_file() or path.resolve().parent != directory:
@@ -179,6 +213,11 @@ def load_recording(directory: Path, session: dict) -> tuple[dict[str, dict], flo
 
 
 def session_samples(stream: dict, start: float, stop: float):
+    """Return samples in the half-open session interval and their relative times.
+
+    Include the start and exclude the stop. Subtract start from each retained
+    timestamp to express it in seconds since the session began.
+    """
     timestamps = stream["time_stamps"]
     mask = (timestamps >= start) & (timestamps < stop)
     values = stream["time_series"]

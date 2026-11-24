@@ -4,10 +4,13 @@ import importlib
 
 
 class LSLUnavailable(RuntimeError):
+    """Report that the Python LSL binding or its native library could not load."""
+
     pass
 
 
 def load_lsl():
+    """Import pylsl on demand and report native-library failures as LSLUnavailable."""
     try:
         return importlib.import_module("pylsl")
     except (ImportError, RuntimeError, OSError) as exc:
@@ -18,6 +21,7 @@ def load_lsl():
 
 
 def describe(info) -> dict:
+    """Extract the identifiers, channel format, and other public stream metadata."""
     return {
         "uid": info.uid(),
         "source_id": info.source_id(),
@@ -31,5 +35,6 @@ def describe(info) -> dict:
 
 
 def discover(timeout: float = 1.0) -> list[dict]:
+    """Return metadata for the LSL streams discovered within the timeout in seconds."""
     lsl = load_lsl()
     return [describe(info) for info in lsl.resolve_streams(wait_time=timeout)]

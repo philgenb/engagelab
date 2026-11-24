@@ -14,28 +14,38 @@ WEBCAM_SCHEMA = "engagelab.webcam.mp4.v1"
 
 
 class VideoCaptureError(RuntimeError):
+    """Report failures in video capture, recording, or publisher control."""
+
     pass
 
 
 class VideoServer(ThreadingHTTPServer):
+    """Serve recording and preview requests on a local video publisher."""
+
     daemon_threads = True
 
     def __init__(self, service):
+        """Bind a loopback port and generate the publisher's bearer token."""
         super().__init__(("127.0.0.1", 0), VideoHandler)
         self.service = service
         self.token = secrets.token_urlsafe(32)
 
     def start(self):
+        """Run the HTTP server on a daemon thread and return that thread."""
         thread = threading.Thread(target=self.serve_forever, name="video-control", daemon=True)
         thread.start()
         return thread
 
 
 class VideoHandler(BaseHTTPRequestHandler):
+    """Handle authenticated start, stop, and preview requests."""
+
     def log_message(self, *_):
+        """Suppress the standard HTTP request log."""
         pass
 
     def respond(self, status, body, content_type="application/json"):
+        """Send response bytes with the content type and caching disabled."""
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -44,6 +54,7 @@ class VideoHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def authorized(self):
+        """Check the bearer token and send a 403 response if it is invalid."""
         supplied = self.headers.get("Authorization", "")
         if not secrets.compare_digest(supplied, f"Bearer {self.server.token}"):
             self.respond(403, b'{"error":"Invalid video control token"}')
@@ -51,6 +62,7 @@ class VideoHandler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
+        """Serve the latest preview, an empty response, or a capture error."""
         if not self.authorized():
             return
         if self.path != "/preview":
@@ -67,6 +79,7 @@ class VideoHandler(BaseHTTPRequestHandler):
             self.respond(200, preview, "image/jpeg")
 
     def do_POST(self):
+        """Dispatch a bounded JSON request to start or stop a video session."""
         if not self.authorized():
             return
         try:
@@ -93,7 +106,10 @@ class VideoHandler(BaseHTTPRequestHandler):
 
 
 class VideoClient:
+    """Send control and preview requests to a video publisher on this host."""
+
     def __init__(self, port: int, token: str):
+        """Configure an authenticated loopback client that bypasses proxies."""
         if not 1 <= port <= 65535 or not token or len(token) > 256:
             raise VideoCaptureError("Invalid video control metadata")
         self.base_url = f"http://127.0.0.1:{port}"
@@ -102,6 +118,11 @@ class VideoClient:
 
     @classmethod
     def from_info(cls, info):
+        """Build a client using control metadata in an LSL stream descriptor.
+
+        Return None for streams without a recognized EngageLab video schema.
+        Recognized publishers must advertise this host and a valid control port.
+        """
         desc = info.desc()
         if desc.child_value("schema") not in {SCREEN_SCHEMA, WEBCAM_SCHEMA}:
             return None
@@ -113,6 +134,10 @@ class VideoClient:
             raise VideoCaptureError("Invalid video control port") from exc
 
     def request(self, route, body=None, timeout=None):
+        """Send an authenticated GET or JSON POST and return the response bytes.
+
+        Convert HTTP and connection failures to VideoCaptureError for the caller.
+        """
         request = Request(
             self.base_url + route,
             data=json.dumps(body).encode() if body is not None else None,
@@ -134,6 +159,7 @@ class VideoClient:
             ) from exc
 
     def start(self, session_id: str, stream_index: int):
+        """Request MP4 capture for a session and return the publisher's recording status."""
         return json.loads(
             self.request(
                 "/start",
@@ -147,7 +173,9 @@ class VideoClient:
         )
 
     def stop(self, session_id: str):
+        """Finalize the session's MP4 and return the publisher's result."""
         return json.loads(self.request("/stop", {"session_id": session_id}))
 
     def preview(self):
+        """Fetch the latest preview JPEG, or empty bytes if it is not available yet."""
         return self.request("/preview")

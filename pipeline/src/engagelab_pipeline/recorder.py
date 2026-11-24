@@ -15,16 +15,25 @@ from .xdf import LabRecorder, XDFUnavailable, load_recording, session_samples
 
 
 class RecordingConflict(RuntimeError):
+    """Report a request that conflicts with the current recording state."""
+
     pass
 
 
 def append_json(file: IO[str], value: dict) -> None:
+    """Append and flush a JSON Lines record, rejecting non-finite values."""
     file.write(json.dumps(value, allow_nan=False, separators=(",", ":")) + "\n")
     file.flush()
 
 
 @dataclass
 class Source:
+    """Keep the state of one selected stream in the backend's live monitor.
+
+    The inlet and clock correction support live status. The optional video
+    client controls a local publisher. LabRecorder uses separate LSL inlets.
+    """
+
     inlet: object
     metadata: dict
     correction: float
@@ -36,6 +45,7 @@ class Recorder:
     """A single recording coordinator shared by the CLI or one API process."""
 
     def __init__(self, store: SessionStore):
+        """Initialize the coordinator for one active session and its worker thread."""
         self.store = store
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -48,6 +58,7 @@ class Recorder:
         self._xdf = None
 
     def delete_session(self, session_id: str) -> None:
+        """Delete a session unless it is recording or still finalizing."""
         # Share the start/stop lock so a recording cannot start while it is being deleted.
         with self._lock:
             session = self.store.get(session_id)
@@ -65,6 +76,11 @@ class Recorder:
                 self._stop_at = None
 
     def preview(self, session_id: str, stream_index: int) -> bytes:
+        """Fetch the latest JPEG from a selected video publisher in the active session.
+
+        The stream index refers to the order in which sources were selected.
+        The publisher can return empty bytes before its first preview is ready.
+        """
         with self._lock:
             if (
                 not self._session
@@ -84,6 +100,7 @@ class Recorder:
         return client.preview()
 
     def snapshot(self) -> dict | None:
+        """Return a copy of the current session with warnings for stalled video streams."""
         with self._lock:
             session = copy.deepcopy(self._session)
             if session and session["status"] == "recording":
@@ -97,6 +114,15 @@ class Recorder:
             return session
 
     def start(self, session_id: str, stream_uids: list[str]) -> dict:
+        """Start a new session with the selected LSL stream UIDs.
+
+        Open the monitoring inlets, then wait for LabRecorder to subscribe to all
+        selected streams and the session marker stream. Publish the start marker
+        before asking local video publishers to begin writing their MP4 files.
+
+        Return the initial session status. If setup fails, release the resources
+        opened so far and save the session as failed.
+        """
         with self._lock:
             if self._thread and self._thread.is_alive():
                 raise RecordingConflict("Another session is already recording")
@@ -236,6 +262,7 @@ class Recorder:
             return copy.deepcopy(session)
 
     def _finish_video(self, source: Source, session_id: str, start: float) -> None:
+        """Stop a publisher and merge its final video status into the stream metadata."""
         if source.metadata.get("video_status") != "recording":
             return
         try:
@@ -264,6 +291,12 @@ class Recorder:
             source.metadata.update(video_status="failed", video_error=str(exc))
 
     def _collect(self, source: Source) -> int:
+        """Read one chunk for live status and return the number of samples pulled.
+
+        Apply the latest inlet clock correction for live counts and keep only
+        samples within the session boundaries. LabRecorder writes the raw samples
+        and clock offsets independently.
+        """
         samples, timestamps = source.inlet.pull_chunk(timeout=0.0, max_samples=1024)
         if not timestamps:
             return 0
@@ -288,6 +321,12 @@ class Recorder:
         return len(timestamps)
 
     def _run(self, sources, events, resources) -> None:
+        """Monitor incoming samples and finalize the session on stop or failure.
+
+        Refresh clock corrections for live counts while LabRecorder writes XDF.
+        During finalization, close the videos and the XDF, then recalculate the
+        sample counts using the clock-corrected session window.
+        """
         error = None
         try:
             while not self._stop.is_set():
@@ -375,6 +414,11 @@ class Recorder:
                 self._markers = None
 
     def stop(self) -> dict:
+        """Publish the stop marker and wait for the recording worker to finalize.
+
+        Return the final session status. If the join times out, raise RuntimeError
+        while the worker continues shutting down.
+        """
         with self._lock:
             if not self._thread or not self._thread.is_alive():
                 raise RecordingConflict("No recording is running")
@@ -389,6 +433,7 @@ class Recorder:
         return self.snapshot()
 
     def close(self) -> None:
+        """Finalize an active recording before the coordinator shuts down."""
         with self._lock:
             running = self._thread is not None and self._thread.is_alive()
         if running:
