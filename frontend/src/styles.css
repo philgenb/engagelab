@@ -1,5 +1,5 @@
 :root {
-  font-family: "Inter Variable", Inter, system-ui, sans-serif;
+  font-family: "IBM Plex Sans Variable", system-ui, sans-serif;
   color: #f0f4f8;
   background: #0d131a;
   font-synthesis: none;
@@ -46,8 +46,9 @@ strong { font-weight: 500; }
 .skip-link:focus { transform: none; }
 .app-shell { display: grid; grid-template-columns: 216px minmax(0, 1fr); min-height: 100vh; }
 .sidebar { position: sticky; top: 0; height: 100vh; padding: 28px 16px 20px; display: flex; flex-direction: column; background: var(--sidebar); border-right: 1px solid var(--border); }
-.brand { display: flex; align-items: center; gap: 10px; padding: 3px 0 35px; font-size: 19px; font-weight: 600; letter-spacing: -.5px; }
-.brand-mark { display: grid; place-items: center; width: 28px; height: 28px; background: var(--accent-dim); color: var(--accent); border-radius: 7px; }
+.brand { display: flex; align-items: center; gap: 9px; padding: 3px 0 35px; }
+.brand-mark { display: block; flex: none; }
+.brand-name { font-size: 20px; font-weight: 600; line-height: 1.2; }
 .sidebar nav { display: grid; gap: 4px; }
 .nav-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 11px 12px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); text-align: left; font-size: 13px; }
 .nav-item:hover { background: var(--raised); color: var(--text); }
@@ -291,7 +292,8 @@ input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px;
   .app-shell { grid-template-columns: 64px minmax(0, 1fr); }
   .sidebar { padding: 20px 8px; }
   .brand { padding: 4px 0 28px; justify-content: center; }
-  .brand > span:last-child, .nav-item > span:not(.nav-live-dot), .sidebar-bottom { display: none; }
+  .brand-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .nav-item > span:not(.nav-live-dot), .sidebar-bottom { display: none; }
   .nav-item { justify-content: center; padding: 13px 0; position: relative; }
   .nav-live-dot { position: absolute; right: 7px; top: 8px; margin-left: 0; }
   main { padding: 28px 20px 28px; }

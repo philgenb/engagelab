@@ -6,6 +6,7 @@ import {
   Square, Trash2, TriangleAlert, Waves, X,
 } from "lucide-react";
 import { request } from "./api";
+import brandMark from "./assets/engagelab-mark.png";
 import {
   Badge, ConnectionState, EmptyState, formatDate, formatDuration, PageHeading,
   SessionsTable, StatusBadge, StreamIcon,
@@ -50,7 +51,10 @@ export function App() {
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">Skip to content</a>
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark" aria-hidden="true"><Activity size={19} /></span><span>EngageLab</span></div>
+      <div className="brand">
+        <img className="brand-mark" src={brandMark} width={28} height={28} alt="" />
+        <span className="brand-name">EngageLab</span>
+      </div>
       <nav aria-label="Main navigation">
         {navigation.map(({ key, label, icon: Icon }) => <button key={key}
           aria-label={label} title={label}
