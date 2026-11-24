@@ -74,5 +74,5 @@ export function SessionsTable({ sessions, open, limit, onDelete, busy = false }:
 
 export function ConnectionState({ status }: { status: "connecting" | "online" | "offline" }) {
   return <span className={`connection-state connection-${status}`}><Radio size={13} />
-    {status === "online" ? "Local collector online" : status === "connecting" ? "Connecting to collector" : "Collector offline"}</span>;
+    {status === "online" ? "Backend connected" : status === "connecting" ? "Connecting…" : "Backend offline"}</span>;
 }

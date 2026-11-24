@@ -357,7 +357,6 @@ function SessionDetails({ id, live }: { id: string; live: Session | null }) {
         <div className="detail-source-title"><span className="source-icon"><StreamIcon stream={stream} /></span><div><h3>{stream.name}</h3><span>{stream.type}</span></div></div>
         <dl className="definition-list"><div><dt>Samples saved</dt><dd className="mono">{(stream.sample_count || 0).toLocaleString()}</dd></div><div><dt>Channels</dt><dd>{stream.channel_count}</dd></div><div><dt>Nominal rate</dt><dd>{stream.nominal_srate ? `${stream.nominal_srate} Hz` : "Irregular"}</dd></div><div><dt>Status</dt><dd>{stream.status || session.status}</dd></div></dl>
       </section>)}</div> : <EmptyState title="No recorded sources" description="This session has not captured any data yet." />}
-      <div className="panel-footnote"><CircleHelp size={15} />This view shows recording metadata and sample counts. Signal playback and analysis are not available yet.</div>
     </section>
     {session.error && <div className="alert" role="alert"><TriangleAlert size={18} />{session.error}</div>}
   </>;
